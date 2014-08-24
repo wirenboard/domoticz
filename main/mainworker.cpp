@@ -56,6 +56,7 @@
 	#include "../hardware/Gpio.h"
 	#include "../hardware/GpioPin.h"
 #endif
+#include "../hardware/WBHomaBridge.h"
 
 #ifdef WIN32
     #include "dirent_windows.h"
@@ -554,6 +555,8 @@ bool MainWorker::AddHardwareFromParams(
 		pHardware = new CGpio(ID);
 #endif
 		break;
+    case HTYPE_WBHomaBridge:
+        pHardware = new WBHomaBridge(ID, Address, Port);
 	}
 
 	if (pHardware)
@@ -7584,7 +7587,12 @@ unsigned long long MainWorker::decode_General(const CDomoticzHardwareBase *pHard
 			break;
 		case sTypePressure:
 			WriteMessage("subtype       = Pressure");
-			sprintf(szTmp,"Voltage = %.1f bar", pMeter->floatval1);
+			sprintf(szTmp,"Pressure = %.1f bar", pMeter->floatval1);
+			WriteMessage(szTmp);
+			break;
+		case sTypePercentage:
+			WriteMessage("subtype       = Percentage");
+			sprintf(szTmp,"Percentage = %.1f%%", pMeter->floatval1);
 			WriteMessage(szTmp);
 			break;
 		default:

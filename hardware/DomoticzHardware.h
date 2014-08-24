@@ -44,6 +44,7 @@ class CDomoticzHardwareBase
 	friend class CToonThermostat;
 	friend class CEcoDevices;
 	friend class CHarmonyHub;
+        friend class WBHomaBridge;
 public:
 	CDomoticzHardwareBase();
 	virtual ~CDomoticzHardwareBase();

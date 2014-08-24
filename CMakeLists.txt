@@ -121,6 +121,19 @@ MACRO(Subversion_GET_REVISION dir variable)
 ENDMACRO(Subversion_GET_REVISION)
 
 Subversion_GET_REVISION(. ProjectRevision)
+find_path(MOSQUITTOPP_INCLUDE_DIR mosquittopp.h)
+find_library(MOSQUITTOPP_LIBRARY mosquittopp)
+find_library(MOSQUITTO_LIBRARY mosquitto)
+if(NOT MOSQUITTOPP_INCLUDE_DIR)
+  message(SEND_ERROR "Failed to find mosquittopp.h")
+endif()
+if(NOT MOSQUITTOPP_LIBRARY)
+  message(SEND_ERROR "Failed to find mosquittopp library")
+endif()
+if(NOT MOSQUITTO_LIBRARY)
+  message(SEND_ERROR "Failed to find mosquitto library")
+endif()
+include_directories(${MOSQUITTOPP_INCLUDE_DIR})
 MESSAGE(STATUS "Compiling Revision #${ProjectRevision}")
 
 # The version number.
@@ -213,6 +226,7 @@ hardware/WOL.cpp
 hardware/Wunderground.cpp
 hardware/YouLess.cpp
 hardware/ZWaveBase.cpp
+hardware/WBHomaBridge.cpp
 smtpclient/SMTPClient.cpp
 tcpserver/TCPClient.cpp
 tcpserver/TCPServer.cpp
@@ -342,7 +356,7 @@ else()
 	message(STATUS "Not building on Raspberry Pi. GPIO support disabled.")
 ENDIF(RaspberryPi)
 
-target_link_libraries(domoticz ${Boost_LIBRARIES} ${SQLITE3_LIBRARY} ${ZLIB_LIBRARIES} ${CURL_LIBRARIES} pthread lua ${CMAKE_DL_LIBS})
+target_link_libraries(domoticz ${Boost_LIBRARIES} ${SQLITE3_LIBRARY} ${ZLIB_LIBRARIES} ${CURL_LIBRARIES} ${MOSQUITTOPP_LIBRARY} ${MOSQUITTO_LIBRARY} pthread lua ${CMAKE_DL_LIBS})
 
 ADD_PRECOMPILED_HEADER(domoticz "main/stdafx.h")
 

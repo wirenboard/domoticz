@@ -172,6 +172,7 @@ const char *Hardware_Type_Desc(int hType)
 		{ HTYPE_TOONTHERMOSTAT, "Toon Thermostat" },
 		{ HTYPE_ECODEVICES, "Eco Devices via LAN interface" },
 		{ HTYPE_HARMONY_HUB, "Logitech Harmony Hub" },
+		{ HTYPE_WBHomaBridge, "WB HomA Bridge (LAN)" },
 		{ 0, NULL, NULL }
 	};
 	return findTableIDSingle1 (Table, hType);
