@@ -1,0 +1,14 @@
+*.o
+CMakeFiles/
+CMakeCache.txt
+*.cmake
+GPATH
+GRTAGS
+GTAGS
+Makefile
+domoticz
+domoticz.db
+lua/Makefile
+lua/src/Makefile
+lua/src/liblua.a
+stdafx.h.gch/.c++
