@@ -7,6 +7,7 @@
 #include <map>
 
 struct sqlite3;
+struct sqlite3_stmt;
 
 struct _tNotification
 {
@@ -157,6 +158,37 @@ struct _tTaskItem
 
 		return tItem;
 	}
+};
+
+class SQLParam
+{
+public:
+    enum ParamType { _Null, Int, Double, Text };
+    SQLParam(): m_type(_Null) {}
+    SQLParam(int value): m_type(Int), m_int_value(value) {}
+    SQLParam(double value): m_type(Double), m_double_value(value) {}
+    SQLParam(const std::string& value): m_type(Text), m_text_value(value) {}
+    SQLParam(const char* value): m_type(Text), m_text_value(value) {}
+    static SQLParam Null() {
+        return SQLParam();
+    };
+    bool bind(sqlite3_stmt* stmt, int n) const;
+private:
+    ParamType m_type;
+    int m_int_value;
+    double m_double_value;
+    std::string m_text_value;
+};
+
+class SQLParamList {
+public:
+    bool bind(sqlite3_stmt* stmt) const;
+    SQLParamList& operator << (const SQLParam& param) {
+        m_params.push_back(param);
+        return *this;
+    }
+private:
+    std::vector<SQLParam> m_params;
 };
 
 class CSQLHelper
@@ -322,7 +354,10 @@ public:
 
 	bool HandleOnOffAction(const bool bIsOn, const std::string &OnAction, const std::string &OffAction);
 
-	std::vector<std::vector<std::string> > query(const std::string &szQuery);
+	std::vector<std::vector<std::string> > query(const std::string &szQuery,
+                                                 const SQLParamList &params = SQLParamList());
+	int execute(const std::string &szQuery,
+                    const SQLParamList &params = SQLParamList());
 	std::string DeleteUserVariable(const std::string &idx);
 	std::string SaveUserVariable(const std::string &varname, const std::string &vartype, const std::string &varvalue);
 	std::string UpdateUserVariable(const std::string &idx, const std::string &varname, const std::string &vartype, const std::string &varvalue, const bool eventtrigger);

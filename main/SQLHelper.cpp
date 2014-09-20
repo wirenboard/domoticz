@@ -478,6 +478,48 @@ const char *sqlCreateFloorplanOrderTrigger =
 
 extern std::string szStartupFolder;
 
+bool SQLParam::bind(sqlite3_stmt* stmt, int n) const
+{
+    sqlite3_stmt* st = (sqlite3_stmt*)stmt;
+    int result;
+    switch(m_type) {
+    case _Null:
+        result = sqlite3_bind_null(st, n);
+        break;
+    case Int:
+        result = sqlite3_bind_int(st, n, m_int_value);
+        break;
+    case Double:
+        result = sqlite3_bind_double(st, n, m_double_value);
+        break;
+    case Text:
+        result = sqlite3_bind_text(st, n, m_text_value.c_str(), -1, SQLITE_TRANSIENT);
+        break;
+    default:
+        return false;
+    }
+    return result == SQLITE_OK;
+}
+
+bool SQLParamList::bind(sqlite3_stmt* stmt) const
+{
+    size_t nparams = (size_t)sqlite3_bind_parameter_count(stmt);
+    if (nparams != m_params.size()) {
+        _log.Log(LOG_ERROR, "Bad SQL parameter count: expected %d, got %d",
+                 nparams, m_params.size());
+        return false;
+    }
+
+    for (std::size_t i = 0; i < m_params.size(); ++i) {
+        if (!m_params[i].bind(stmt, i + 1)) {
+            _log.Log(LOG_ERROR, "Failed to bind SQL parameter %d", i + 1);
+            return false;
+        }
+    }
+
+    return true;
+}
+
 CSQLHelper::CSQLHelper(void)
 {
 	m_LastSwitchID="";
@@ -1498,7 +1540,8 @@ void CSQLHelper::SetDatabaseName(const std::string &DBName)
 	m_dbase_name=DBName;
 }
 
-std::vector<std::vector<std::string> > CSQLHelper::query(const std::string &szQuery)
+std::vector<std::vector<std::string> > CSQLHelper::query(const std::string &szQuery,
+                                                         const SQLParamList &params)
 {
 	if (!m_dbase)
 	{
@@ -1513,6 +1556,8 @@ std::vector<std::vector<std::string> > CSQLHelper::query(const std::string &szQu
 
 	if(sqlite3_prepare_v2(m_dbase, szQuery.c_str(), -1, &statement, 0) == SQLITE_OK)
 	{
+        params.bind(statement);
+
 		int cols = sqlite3_column_count(statement);
 		int result = 0;
 		while(true)
@@ -1547,6 +1592,35 @@ std::vector<std::vector<std::string> > CSQLHelper::query(const std::string &szQu
 	if(error != "not an error") 
 		_log.Log(LOG_ERROR,"%s",error.c_str());
 	return results; 
+}
+
+int CSQLHelper::execute(const std::string &szQuery, const SQLParamList &params)
+{
+	if (!m_dbase)
+	{
+		_log.Log(LOG_ERROR,"Database not open!!...Check your user rights!..");
+		std::vector<std::vector<std::string> > results;
+		return -1;
+	}
+	boost::lock_guard<boost::mutex> l(m_sqlQueryMutex);
+	
+	sqlite3_stmt *statement;
+    int result = 0, row_count = -1;
+	if(sqlite3_prepare_v2(m_dbase, szQuery.c_str(), -1, &statement, 0) == SQLITE_OK)
+	{
+        params.bind(statement);
+        result = sqlite3_step(statement);
+		sqlite3_finalize(statement);
+
+        if (result == SQLITE_DONE)
+            row_count = sqlite3_changes(m_dbase);
+
+	}
+
+	std::string error = sqlite3_errmsg(m_dbase);
+	if(error != "not an error")
+		_log.Log(LOG_ERROR,"%s",error.c_str());
+	return row_count;
 }
 
 unsigned long long CSQLHelper::UpdateValue(const int HardwareID, const char* ID, const unsigned char unit, const unsigned char devType, const unsigned char subType, const unsigned char signallevel, const unsigned char batterylevel, const int nValue, std::string &devname, const bool bUseOnOffAction)
