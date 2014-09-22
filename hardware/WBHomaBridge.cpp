@@ -31,6 +31,11 @@ struct MQTTAddress
                             device_control_id < other.device_control_id);
     }
 
+    std::string topic() const
+    {
+        return "/devices/" + system_id + "/controls/" + device_control_id;
+    }
+
     std::string system_id;
     std::string device_control_id;
 };
@@ -51,16 +56,21 @@ struct MQTTValue
 };
 
 typedef std::map<MQTTAddress, MQTTValue> ValueMap;
+typedef std::map<std::string, MQTTAddress> AddressMap;
 
 namespace {
+    const int HighIDStart = 420000;
+
     class MQTTTypeHandler
     {
     public:
         MQTTTypeHandler(const char* type): m_type(type) {}
         virtual ~MQTTTypeHandler();
+        virtual int devType() const = 0;
+        virtual int subType() const = 0;
         virtual bool HandleValue(const std::string& inputValue,
-                                 int* out_type, int* out_subtype,
-                                 int* out_nValue, std::string* out_sValue) = 0;
+                                 int* out_nValue, std::string* out_sValue) const = 0;
+        virtual std::string GenerateDeviceID(int hardwareID) const;
         bool Match(const std::string& type) const;
     private:
         const char* m_type;
@@ -76,21 +86,35 @@ namespace {
         return m_type  == type;
     }
 
+    std::string MQTTTypeHandler::GenerateDeviceID(int hardwareID) const
+    {
+        std::vector< std::vector<std::string> > result =
+            m_sql.query("SELECT MAX(CAST(DeviceID AS INT)) + 1 FROM DeviceStatus "
+                        "WHERE HardwareID = ?", SQLParamList() << hardwareID);
+
+        if (result.empty()) {
+            std::stringstream s;
+            s << HighIDStart;
+            return s.str();
+        }
+
+        return result[0][0];
+    }
+
     class MQTTTemperatureHandler: public MQTTTypeHandler
     {
     public:
         MQTTTemperatureHandler(): MQTTTypeHandler("temperature") {}
+
+        int devType() const { return pTypeTEMP; }
+        int subType() const { return sTypeTEMP1; }
+
         bool HandleValue(const std::string& inputValue,
-                         int* out_type, int* out_subtype,
-                         int* out_nValue, std::string* out_sValue);
+                         int* out_nValue, std::string* out_sValue) const;
     };
 
     bool MQTTTemperatureHandler::HandleValue(const std::string& inputValue,
-                                             int* out_type, int* out_subtype,
-                                             int* out_nValue, std::string* out_sValue)
-    {
-        *out_type = pTypeTEMP;
-        *out_subtype = sTypeTEMP1;
+                         int* out_nValue, std::string* out_sValue) const {
         *out_nValue = 0;
         *out_sValue = inputValue;
         return true;
@@ -100,20 +124,31 @@ namespace {
     {
     public:
         MQTTSwitchHandler(): MQTTTypeHandler("switch") {}
+
+        int devType() const { return pTypeLighting1; }
+        int subType() const { return sTypeX10; }
+
         bool HandleValue(const std::string& inputValue,
-                         int* out_type, int* out_subtype,
-                         int* out_nValue, std::string* out_sValue);
+                         int* out_nValue, std::string* out_sValue) const;
+        virtual std::string GenerateDeviceID(int hardwareID) const;
     };
 
     bool MQTTSwitchHandler::HandleValue(const std::string& inputValue,
-                                        int* out_type, int* out_subtype,
-                                        int* out_nValue, std::string* out_sValue)
+                     int* out_nValue, std::string* out_sValue) const
     {
-        *out_type = pTypeLighting1;
-        *out_subtype = sTypeX10;
         *out_nValue = inputValue == "1" ? light1_sOn : light1_sOff;
         *out_sValue = "";
         return true;
+    }
+
+    std::string MQTTSwitchHandler::GenerateDeviceID(int hardwareID) const
+    {
+        // must use id < 255 for the switch to work
+        std::vector< std::vector<std::string> > result =
+            m_sql.query("SELECT MAX(CAST(DeviceID AS INT)) + 1 FROM DeviceStatus "
+                        "WHERE HardwareID = ? AND CAST(DeviceID AS INT) < ?",
+                        SQLParamList() << hardwareID << HighIDStart);
+        return result.empty() ? "1" : result[0][0];
     }
 
     MQTTTypeHandler* type_handlers[] = {
@@ -131,10 +166,12 @@ namespace {
             DeviceID
         };
         MQTTHandler(WBHomaBridge* bridge, std::string host, int port);
+        virtual ~MQTTHandler();
         void on_connect(int rc);
         void on_message(const struct mosquitto_message *message);
         void on_subscribe(int mid, int qos_count, const int *granted_qos);
         void StoreDeviceID(const MQTTAddress& address, const std::string& device_id);
+        void ToggleSwitch(const MQTTAddress& address, bool on);
 
     private:
         WBHomaBridge* m_bridge;
@@ -149,6 +186,11 @@ namespace {
         sprintf(buf, "/tmp/%ld-%d-%d/retain_hack", time(NULL), rand(), rand());
         m_readyTopic = buf;
         connect(host.c_str(), port, m_keepalive);
+    }
+
+    MQTTHandler::~MQTTHandler()
+    {
+        // NOOP
     }
 
     void MQTTHandler::on_connect(int rc)
@@ -243,9 +285,14 @@ namespace {
 
     void MQTTHandler::StoreDeviceID(const MQTTAddress& address, const std::string& device_id)
     {
-        std::string topic = "/devices/" + address.system_id + "/controls/" +
-            address.device_control_id + "/meta/domoticz_device_id";
+        std::string topic = address.topic() + "/meta/domoticz_device_id";
         publish(0, topic.c_str(), device_id.size(), device_id.c_str(), 0, true);
+    }
+
+    void MQTTHandler::ToggleSwitch(const MQTTAddress& address, bool on)
+    {
+        std::string topic = address.topic() + "/on";
+        publish(0, topic.c_str(), 1, on ? "1" : "0");
     }
 }
 
@@ -258,6 +305,7 @@ struct WBHomaBridgePrivate
     bool m_stoprequested;
     boost::shared_ptr<boost::thread> m_thread;
     ValueMap m_values;
+    AddressMap m_addresses;
     static bool s_libInitialized;
 };
 
@@ -276,13 +324,15 @@ WBHomaBridge::WBHomaBridge(const int ID, const std::string IPAddress, const unsi
 
 WBHomaBridge::~WBHomaBridge()
 {
+    if (d->m_handler)
+        delete d->m_handler;
     delete d;
 }
 
 void WBHomaBridge::WriteToHardware(const char *pdata, const unsigned char length)
 {
     if (length < 2 || pdata[1] != pTypeLighting1) {
-        _log.Log(LOG_NORM, "WBHomaBridge::WriteToHardware(): skipping bad packet");
+        _log.Log(LOG_ERROR, "WBHomaBridge::WriteToHardware(): skipping bad packet");
         return;
     }
 
@@ -293,6 +343,18 @@ void WBHomaBridge::WriteToHardware(const char *pdata, const unsigned char length
              rbuf->LIGHTING1.housecode,
              rbuf->LIGHTING1.unitcode,
              rbuf->LIGHTING1.cmnd);
+
+    std::stringstream s;
+    s << (int)rbuf->LIGHTING1.housecode;
+    AddressMap::iterator it = d->m_addresses.find(s.str());
+    if (it == d->m_addresses.end()) {
+        _log.Log(LOG_ERROR, "WBHomaBridge::WriteToHardware(): unknown device id %s",
+                 s.str().c_str());
+        return;
+    }
+    bool on = rbuf->LIGHTING1.cmnd == light1_sOn;
+    _log.Log(LOG_NORM, "ToggleSwitch: %s %s", it->second.topic().c_str(), on ? "on" : "off");
+    d->m_handler->ToggleSwitch(it->second, on);
 }
 
 void WBHomaBridge::HandleMQTTMessage(const MQTTAddress& address, int payload_type,
@@ -314,6 +376,7 @@ void WBHomaBridge::HandleMQTTMessage(const MQTTAddress& address, int payload_typ
         break;
     case MQTTHandler::DeviceID:
         value->devID = payload;
+        d->m_addresses[payload] = address;
         break;
     }
 
@@ -366,53 +429,43 @@ bool WBHomaBridge::StopHardware()
     return true;
 }
 
-std::string WBHomaBridge::GenerateDeviceID() const
-{
-	std::vector< std::vector<std::string> > result =
-        m_sql.query("SELECT MAX(CAST(DeviceID AS INT)) + 1 FROM DeviceStatus "
-                    "WHERE HardwareID = ?", SQLParamList() << m_HwdID);
-    return result.size() ? result[0][0] : "420000";
-}
-
 void WBHomaBridge::WriteValueToDB(const MQTTAddress& address, MQTTValue* value)
 {
-    bool found = false;
-    int devType, subType, nValue = 0;
+    MQTTTypeHandler* typeHandler = 0;
+    int nValue = 0;
     std::string sValue = "";
     for (MQTTTypeHandler** h = type_handlers; *h; ++h) {
         if ((*h)->Match(value->type)) {
-            found = true;
-            (*h)->HandleValue(value->value, &devType, &subType, &nValue, &sValue);
+            typeHandler = *h;
             break;
         }
     }
-    if (!found) {
+    if (!typeHandler) {
         _log.Log(LOG_ERROR, "no matching type for MQTT/homA type %s", value->type.c_str());
         return;
     }
+    typeHandler->HandleValue(value->value, &nValue, &sValue);
 
     if (value->devID.empty()) {
-        value->devID = GenerateDeviceID();
+        value->devID = typeHandler->GenerateDeviceID(m_HwdID);
         d->m_handler->StoreDeviceID(address, value->devID);
+        d->m_addresses[value->devID] = address;
     }
 
     _log.Log(LOG_NORM, "WBHomaBridge: writing param: hw id %d, devid '%s', nValue %d, sValue '%s'",
              m_HwdID, value->devID.c_str(), nValue, sValue.c_str());
 
     std::string devname = "";
-    _log.Log(LOG_NORM, "qqqq0");
     m_sql.UpdateValue(m_HwdID, value->devID.c_str(),
-                      1, devType, subType, 12, 255, nValue, sValue.c_str(),
+                      1, typeHandler->devType(), typeHandler->subType(),
+                      12, 255, nValue, sValue.c_str(),
                       devname);
-    _log.Log(LOG_NORM, "qqqq1");
-    _log.Log(LOG_NORM, "qqqq2");
-    _log.Log(LOG_NORM, "qqqq3");
     int r = m_sql.execute("UPDATE DeviceStatus SET Name = ? "
                           "WHERE HardwareID = ? AND DeviceID = ?",
                           SQLParamList() << address.device_control_id <<
                           m_HwdID << value->devID);
     _log.Log(LOG_NORM, "WBHomaBridge: name update result: %d", r);
-    if (devType == pTypeLighting1)
+    if (typeHandler->devType() == pTypeLighting1)
         m_sql.execute("UPDATE DeviceStatus SET SwitchType = 0 "
                       "WHERE HardwareID = ? AND DeviceID = ?",
                       SQLParamList() << m_HwdID << value->devID);
@@ -447,3 +500,7 @@ void WBHomaBridge::Do_Work()
 // TBD: custom lighting subtype
 // TBD: make mosquitto an optional dependency
 //      (don't build WBHomaBridge if it's not found)
+// TBD: handle deletion of controls
+//      (when type becomes empty or unrecognized, remote DeviceStatus entry)
+// TBD: use type other than pTypeLighting1 in order to avoid 255 switch limit
+// TBD: show proper ID colum in 'Devices' table in the browser

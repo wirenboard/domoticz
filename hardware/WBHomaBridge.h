@@ -20,7 +20,6 @@ public:
 private:
     bool StartHardware();
     bool StopHardware();
-    std::string GenerateDeviceID() const;
     void WriteValueToDB(const MQTTAddress& address, MQTTValue* value);
     void Do_Work();
 
