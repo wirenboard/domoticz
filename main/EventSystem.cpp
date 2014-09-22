@@ -712,6 +712,9 @@ std::string CEventSystem::UpdateSingleState(const unsigned long long ulDevID, co
 		replaceitem.deviceName = devname;
 		replaceitem.nValue = nValue;
 		replaceitem.sValue = sValue;
+		replaceitem.devType = devType;
+		replaceitem.subType = subType;
+		replaceitem.switchtype = switchType;
 		replaceitem.nValueWording = nValueWording;
 		replaceitem.lastUpdate = lastUpdate;
 		replaceitem.lastLevel = lastLevel;
@@ -724,6 +727,9 @@ std::string CEventSystem::UpdateSingleState(const unsigned long long ulDevID, co
 		newitem.deviceName = devname;
 		newitem.nValue = nValue;
 		newitem.sValue = sValue;
+		newitem.devType = devType;
+		newitem.subType = subType;
+		newitem.switchtype = switchType;
 		newitem.nValueWording = nValueWording;
 		newitem.lastUpdate = lastUpdate;
 		newitem.lastLevel = lastLevel;
