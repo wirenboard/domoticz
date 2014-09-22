@@ -11,6 +11,7 @@
 #include "../main/SQLHelper.h"
 #include "../main/Helper.h"
 #include "../main/RFXtrx.h" // more hw types
+#include "../main/localtime_r.h"
 #include "hardwaretypes.h"
 
 #ifdef WIN32
@@ -481,6 +482,7 @@ void WBHomaBridge::Do_Work()
         int rc = d->m_handler->loop(100);
         if (rc)
             d->m_handler->reconnect();
+        mytime(&m_LastHeartbeat);
 	}
 
 	_log.Log(LOG_STATUS,"WBHomaBridge: Stopped...");
@@ -491,8 +493,6 @@ void WBHomaBridge::Do_Work()
 // TBD: make mqtt loop timeout a constant
 // TBD: obtain version from git repository, too (during build)
 // TBD: make sure notifications work
-// TBD: Mon Aug 25 00:44:30 2014 Error: zzz hardware (3) thread seems to have ended unexpectedly
-//      (though the thread still works)
 // TBD: receive types, rm DeviceStatus entries with mismatching types,
 //      ignore params with unknown type values
 // TBD: validate numbers in value handlers
