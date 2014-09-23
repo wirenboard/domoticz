@@ -32,7 +32,7 @@ struct MQTTAddress
                             device_control_id < other.device_control_id);
     }
 
-    std::string topic() const
+    std::string Topic() const
     {
         return "/devices/" + system_id + "/controls/" + device_control_id;
     }
@@ -60,19 +60,19 @@ typedef std::map<MQTTAddress, MQTTValue> ValueMap;
 typedef std::map<std::string, MQTTAddress> AddressMap;
 
 namespace {
-    const int HighIDStart = 420000;
-
     class MQTTTypeHandler
     {
     public:
         MQTTTypeHandler(const char* type): m_type(type) {}
         virtual ~MQTTTypeHandler();
-        virtual int devType() const = 0;
-        virtual int subType() const = 0;
-        virtual bool HandleValue(const std::string& inputValue,
-                                 int* out_nValue, std::string* out_sValue) const = 0;
-        virtual std::string GenerateDeviceID(int hardwareID) const;
         bool Match(const std::string& type) const;
+        bool Match(RBUF* rbuf) const;
+        std::string AddressMapKey(const std::string& deviceID) const;
+        virtual int DevType() const = 0;
+        virtual int SubType() const = 0;
+        virtual std::string GenerateDeviceID(int hardwareID) const;
+        virtual int Encode(const std::string& value, RBUF* buf, const std::string& deviceID) const = 0;
+        virtual bool Decode(RBUF* buf, std::string* deviceID, std::string* value) const;
     private:
         const char* m_type;
     };
@@ -87,19 +87,30 @@ namespace {
         return m_type  == type;
     }
 
+    bool MQTTTypeHandler::Match(RBUF* buf) const
+    {
+        return buf->RAW.packettype == DevType() && buf->RAW.subtype == SubType();
+    }
+
+    std::string MQTTTypeHandler::AddressMapKey(const std::string& deviceID) const
+    {
+        std::stringstream s;
+        s << deviceID << "/" << DevType() << "/" << SubType();
+        return s.str();
+    }
+
     std::string MQTTTypeHandler::GenerateDeviceID(int hardwareID) const
     {
         std::vector< std::vector<std::string> > result =
             m_sql.query("SELECT MAX(CAST(DeviceID AS INT)) + 1 FROM DeviceStatus "
-                        "WHERE HardwareID = ?", SQLParamList() << hardwareID);
+                        "WHERE HardwareID = ? AND Type = ? AND SubType = ?",
+                        SQLParamList() << hardwareID << DevType() << SubType());
+        return result.empty() ? "1" : result[0][0];
+    }
 
-        if (result.empty()) {
-            std::stringstream s;
-            s << HighIDStart;
-            return s.str();
-        }
-
-        return result[0][0];
+    bool MQTTTypeHandler::Decode(RBUF*, std::string*, std::string*) const
+    {
+        return false;
     }
 
     class MQTTTemperatureHandler: public MQTTTypeHandler
@@ -107,18 +118,36 @@ namespace {
     public:
         MQTTTemperatureHandler(): MQTTTypeHandler("temperature") {}
 
-        int devType() const { return pTypeTEMP; }
-        int subType() const { return sTypeTEMP1; }
+        int DevType() const { return pTypeTEMP; }
+        int SubType() const { return sTypeTEMP1; }
 
-        bool HandleValue(const std::string& inputValue,
-                         int* out_nValue, std::string* out_sValue) const;
+        int Encode(const std::string& value, RBUF* buf, const std::string& deviceID) const;
     };
 
-    bool MQTTTemperatureHandler::HandleValue(const std::string& inputValue,
-                         int* out_nValue, std::string* out_sValue) const {
-        *out_nValue = 0;
-        *out_sValue = inputValue;
-        return true;
+    int MQTTTemperatureHandler::Encode(const std::string& value, RBUF* buf,
+                                       const std::string& deviceID) const
+    {
+        std::stringstream s(deviceID);
+        int id;
+        s >> id;
+
+        std::stringstream s1(value);
+        float v;
+        s1 >> v;
+
+        buf->TEMP.packetlength = sizeof(buf->TEMP) - 1;
+        buf->TEMP.packettype = pTypeTEMP;
+        buf->TEMP.subtype = SubType();
+        buf->TEMP.battery_level = 9;
+        buf->TEMP.rssi = 12;
+        buf->TEMP.id1 = id >> 8;
+        buf->TEMP.id2 = id & 255;
+        buf->TEMP.tempsign = (v >= 0) ? 0 : 1;
+        int vInt = round(abs(v * 10.0f));
+        buf->TEMP.temperatureh = vInt >> 8;
+        buf->TEMP.temperaturel = vInt & 255;
+
+        return buf->TEMP.id2; // unit id
     }
 
     class MQTTSwitchHandler: public MQTTTypeHandler
@@ -126,30 +155,46 @@ namespace {
     public:
         MQTTSwitchHandler(): MQTTTypeHandler("switch") {}
 
-        int devType() const { return pTypeLighting1; }
-        int subType() const { return sTypeX10; }
+        int DevType() const { return pTypeLighting1; }
+        int SubType() const { return sTypeX10; }
 
-        bool HandleValue(const std::string& inputValue,
-                         int* out_nValue, std::string* out_sValue) const;
-        virtual std::string GenerateDeviceID(int hardwareID) const;
+        int Encode(const std::string& value, RBUF* buf, const std::string& deviceID) const;
+        bool Decode(RBUF* buf, std::string* deviceID, std::string* value) const;
     };
 
-    bool MQTTSwitchHandler::HandleValue(const std::string& inputValue,
-                     int* out_nValue, std::string* out_sValue) const
+
+    int MQTTSwitchHandler::Encode(const std::string& value, RBUF* buf,
+                                  const std::string& deviceID) const
     {
-        *out_nValue = inputValue == "1" ? light1_sOn : light1_sOff;
-        *out_sValue = "";
-        return true;
+        std::stringstream s(deviceID);
+        int id;
+        s >> id;
+
+        buf->LIGHTING1.packetlength = sizeof(buf->LIGHTING1) -1;
+        buf->LIGHTING1.housecode = (BYTE)id; // FIXME
+        buf->LIGHTING1.packettype = pTypeLighting1;
+        buf->LIGHTING1.subtype = sTypeX10;
+        buf->LIGHTING1.rssi = 12;
+        buf->LIGHTING1.seqnbr = 0; // FIXME
+        buf->LIGHTING1.cmnd = (value == "1" ? light1_sOn : light1_sOff);
+        buf->LIGHTING1.unitcode = (BYTE)id;
+
+        return buf->LIGHTING1.unitcode;
     }
 
-    std::string MQTTSwitchHandler::GenerateDeviceID(int hardwareID) const
+    bool MQTTSwitchHandler::Decode(RBUF* buf, std::string* deviceID, std::string* value) const
     {
-        // must use id < 255 for the switch to work
-        std::vector< std::vector<std::string> > result =
-            m_sql.query("SELECT MAX(CAST(DeviceID AS INT)) + 1 FROM DeviceStatus "
-                        "WHERE HardwareID = ? AND CAST(DeviceID AS INT) < ?",
-                        SQLParamList() << hardwareID << HighIDStart);
-        return result.empty() ? "1" : result[0][0];
+        _log.Log(LOG_NORM,
+                 "MQTTSwitchHandler(): subType 0x%02x, housecode %d, unitcode %d, cmnd 0x%02x",
+                 buf->LIGHTING1.subtype,
+                 buf->LIGHTING1.housecode,
+                 buf->LIGHTING1.unitcode,
+                 buf->LIGHTING1.cmnd);
+        std::stringstream s;
+        s << (int)buf->LIGHTING1.housecode;
+        *deviceID = s.str();
+        *value = buf->LIGHTING1.cmnd == light1_sOn ? "1" : "0";
+        return true;
     }
 
     MQTTTypeHandler* type_handlers[] = {
@@ -157,6 +202,16 @@ namespace {
         new MQTTSwitchHandler(),
         0
     };
+
+    template<class T> MQTTTypeHandler* GetMQTTTypeHandler(T thing)
+    {
+        for (MQTTTypeHandler** h = type_handlers; *h; ++h) {
+            if ((*h)->Match(thing))
+                return *h;
+        }
+
+        return 0;
+    }
 
     class MQTTHandler: public mosqpp::mosquittopp
     {
@@ -172,7 +227,7 @@ namespace {
         void on_message(const struct mosquitto_message *message);
         void on_subscribe(int mid, int qos_count, const int *granted_qos);
         void StoreDeviceID(const MQTTAddress& address, const std::string& device_id);
-        void ToggleSwitch(const MQTTAddress& address, bool on);
+        void WriteControlValue(const MQTTAddress& address, const std::string& value);
 
     private:
         WBHomaBridge* m_bridge;
@@ -207,26 +262,6 @@ namespace {
     {
         _log.Log(LOG_STATUS, "message topic: %s payload: %s", message->topic, message->payload);
 
-#if 0
-        // that's how to do it via DecodeRXMessage(),
-        // but that would require more elaborate DeviceID generation
-        if (strcmp(message->topic, "/devices/notebook/controls/Core0"))
-            return;
-
-        char buf[51];
-        memset(buf, 0, 51);
-        memcpy(buf, message->payload, 50);
-        double v = atof(buf);
-
-        _tGeneralDevice gDevice;
-        gDevice.subtype = sTypePressure;
-        gDevice.id = 1;
-        gDevice.floatval1 = v;
-        gDevice.intval1 = 1; // device index
-        m_bridge->sDecodeRXMessage(m_bridge, (const unsigned char *)&gDevice);
-
-        return;
-#endif
         if (message->topic == m_readyTopic) {
             // at that point, retained control -> domoticz DeviceID
             // mappings are recieved
@@ -286,14 +321,16 @@ namespace {
 
     void MQTTHandler::StoreDeviceID(const MQTTAddress& address, const std::string& device_id)
     {
-        std::string topic = address.topic() + "/meta/domoticz_device_id";
+        std::string topic = address.Topic() + "/meta/domoticz_device_id";
         publish(0, topic.c_str(), device_id.size(), device_id.c_str(), 0, true);
     }
 
-    void MQTTHandler::ToggleSwitch(const MQTTAddress& address, bool on)
+    void MQTTHandler::WriteControlValue(const MQTTAddress& address, const std::string& value)
     {
-        std::string topic = address.topic() + "/on";
-        publish(0, topic.c_str(), 1, on ? "1" : "0");
+        _log.Log(LOG_NORM, "WBHomaBridge::WriteControlValue(): %s <-- %s",
+                 address.Topic().c_str(), value.c_str());
+        std::string topic = address.Topic() + "/on";
+        publish(0, topic.c_str(), value.size(), value.c_str());
     }
 }
 
@@ -330,32 +367,28 @@ WBHomaBridge::~WBHomaBridge()
     delete d;
 }
 
-void WBHomaBridge::WriteToHardware(const char *pdata, const unsigned char length)
+void WBHomaBridge::WriteToHardware(const char *pdata, const unsigned char)
 {
-    if (length < 2 || pdata[1] != pTypeLighting1) {
-        _log.Log(LOG_ERROR, "WBHomaBridge::WriteToHardware(): skipping bad packet");
+    RBUF* buf = (tRBUF*)pdata;
+    _log.Log(LOG_NORM, "WBHomaBridge::WriteToHardware(): type 0x%02x, subType 0x%02x",
+             buf->RAW.packettype, buf->RAW.subtype);
+
+    MQTTTypeHandler* typeHandler = GetMQTTTypeHandler(buf);
+    if (!typeHandler) {
+        _log.Log(LOG_ERROR, "WBHomaBridge::WriteToHardware(): couldn't decode the packet");
         return;
     }
 
-    tRBUF* rbuf = (tRBUF*)pdata;
-    _log.Log(LOG_NORM, "WBHomaBridge::WriteToHardware(): subType 0x%02x, housecode %d, "
-             "unitcode %d, cmnd 0x%02x",
-             rbuf->LIGHTING1.subtype,
-             rbuf->LIGHTING1.housecode,
-             rbuf->LIGHTING1.unitcode,
-             rbuf->LIGHTING1.cmnd);
+    std::string deviceID, value;
+    typeHandler->Decode(buf, &deviceID, &value);
 
-    std::stringstream s;
-    s << (int)rbuf->LIGHTING1.housecode;
-    AddressMap::iterator it = d->m_addresses.find(s.str());
+    AddressMap::iterator it = d->m_addresses.find(typeHandler->AddressMapKey(deviceID));
     if (it == d->m_addresses.end()) {
         _log.Log(LOG_ERROR, "WBHomaBridge::WriteToHardware(): unknown device id %s",
-                 s.str().c_str());
+                 deviceID.c_str());
         return;
     }
-    bool on = rbuf->LIGHTING1.cmnd == light1_sOn;
-    _log.Log(LOG_NORM, "ToggleSwitch: %s %s", it->second.topic().c_str(), on ? "on" : "off");
-    d->m_handler->ToggleSwitch(it->second, on);
+    d->m_handler->WriteControlValue(it->second, value);
 }
 
 void WBHomaBridge::HandleMQTTMessage(const MQTTAddress& address, int payload_type,
@@ -377,7 +410,6 @@ void WBHomaBridge::HandleMQTTMessage(const MQTTAddress& address, int payload_typ
         break;
     case MQTTHandler::DeviceID:
         value->devID = payload;
-        d->m_addresses[payload] = address;
         break;
     }
 
@@ -388,7 +420,7 @@ void WBHomaBridge::HandleMQTTMessage(const MQTTAddress& address, int payload_typ
              value->ready() ? "true" : "false");
 
     if (d->m_ready && value->ready())
-        WriteValueToDB(address, value);
+        SendValueToDomoticz(address, value);
 }
 
 void WBHomaBridge::Ready()
@@ -400,7 +432,7 @@ void WBHomaBridge::Ready()
     for (ValueMap::iterator it = d->m_values.begin(); it != d->m_values.end(); ++it) {
         if (it->second.ready()) {
             _log.Log(LOG_NORM, "ready0");
-            WriteValueToDB(it->first, &it->second);
+            SendValueToDomoticz(it->first, &it->second);
             _log.Log(LOG_NORM, "ready1");
         }
     }
@@ -430,46 +462,46 @@ bool WBHomaBridge::StopHardware()
     return true;
 }
 
-void WBHomaBridge::WriteValueToDB(const MQTTAddress& address, MQTTValue* value)
+void WBHomaBridge::SendValueToDomoticz(const MQTTAddress& address, MQTTValue* value)
 {
-    MQTTTypeHandler* typeHandler = 0;
-    int nValue = 0;
-    std::string sValue = "";
-    for (MQTTTypeHandler** h = type_handlers; *h; ++h) {
-        if ((*h)->Match(value->type)) {
-            typeHandler = *h;
-            break;
-        }
-    }
+    MQTTTypeHandler* typeHandler = GetMQTTTypeHandler(value->type);
     if (!typeHandler) {
         _log.Log(LOG_ERROR, "no matching type for MQTT/homA type %s", value->type.c_str());
         return;
     }
-    typeHandler->HandleValue(value->value, &nValue, &sValue);
 
     if (value->devID.empty()) {
         value->devID = typeHandler->GenerateDeviceID(m_HwdID);
         d->m_handler->StoreDeviceID(address, value->devID);
-        d->m_addresses[value->devID] = address;
     }
+    d->m_addresses[typeHandler->AddressMapKey(value->devID)] = address;
 
-    _log.Log(LOG_NORM, "WBHomaBridge: writing param: hw id %d, devid '%s', nValue %d, sValue '%s'",
-             m_HwdID, value->devID.c_str(), nValue, sValue.c_str());
+    RBUF buf;
+    memset(&buf, 0, sizeof(buf));
+    typeHandler->Encode(value->value, &buf, value->devID);
 
-    std::string devname = "";
-    m_sql.UpdateValue(m_HwdID, value->devID.c_str(),
-                      1, typeHandler->devType(), typeHandler->subType(),
-                      12, 255, nValue, sValue.c_str(),
-                      devname);
+    _log.Log(LOG_NORM, "WBHomaBridge: writing param: hw id %d, devid '%s', value '%s'",
+             m_HwdID, value->devID.c_str(), value->value.c_str());
+
+    sDecodeRXMessage(this, (const unsigned char*)&buf);
+
     int r = m_sql.execute("UPDATE DeviceStatus SET Name = ? "
-                          "WHERE HardwareID = ? AND DeviceID = ?",
+                          "WHERE HardwareID = ? AND DeviceID = ? AND "
+                          "Type = ? AND SubType = ?",
                           SQLParamList() << address.device_control_id <<
-                          m_HwdID << value->devID);
-    _log.Log(LOG_NORM, "WBHomaBridge: name update result: %d", r);
-    if (typeHandler->devType() == pTypeLighting1)
+                          m_HwdID << value->devID <<
+                          typeHandler->DevType() << typeHandler->SubType());
+
+    if (r != 1)
+        _log.Log(LOG_ERROR, "WBHomaBridge: bad name update result for %s: %d",
+                 address.device_control_id.c_str(), r);
+
+    if (typeHandler->DevType() == pTypeLighting1)
         m_sql.execute("UPDATE DeviceStatus SET SwitchType = 0 "
-                      "WHERE HardwareID = ? AND DeviceID = ?",
-                      SQLParamList() << m_HwdID << value->devID);
+                      "WHERE HardwareID = ? AND DeviceID = ? AND "
+                      "Type = ? AND SubType = ?",
+                      SQLParamList() << m_HwdID << value->devID <<
+                      typeHandler->DevType() << typeHandler->SubType());
     return;
 }
 
@@ -504,3 +536,5 @@ void WBHomaBridge::Do_Work()
 //      (when type becomes empty or unrecognized, remote DeviceStatus entry)
 // TBD: use type other than pTypeLighting1 in order to avoid 255 switch limit
 // TBD: show proper ID colum in 'Devices' table in the browser
+// TBD: generate unit ids
+// TBD: check packet length in Decode() methods (need to add arg)

@@ -20,7 +20,7 @@ public:
 private:
     bool StartHardware();
     bool StopHardware();
-    void WriteValueToDB(const MQTTAddress& address, MQTTValue* value);
+    void SendValueToDomoticz(const MQTTAddress& address, MQTTValue* value);
     void Do_Work();
 
     WBHomaBridgePrivate* d;
