@@ -155,45 +155,76 @@ namespace {
     public:
         MQTTSwitchHandler(): MQTTTypeHandler("switch") {}
 
-        int DevType() const { return pTypeLighting1; }
-        int SubType() const { return sTypeX10; }
+        int DevType() const { return pTypeLighting5; }
+        int SubType() const { return sTypeWBRelay; }
 
+        std::string GenerateDeviceID(int hardwareID) const;
         int Encode(const std::string& value, RBUF* buf, const std::string& deviceID) const;
         bool Decode(RBUF* buf, std::string* deviceID, std::string* value) const;
     };
 
+    std::string MQTTSwitchHandler::GenerateDeviceID(int hardwareID) const
+    {
+        std::vector< std::vector<std::string> > result =
+            m_sql.query("SELECT MAX(DeviceID) FROM DeviceStatus "
+                        "WHERE HardwareID = ? AND Type = ? AND SubType = ?",
+                        SQLParamList() << hardwareID << DevType() << SubType());
+        int id = 1;
+        std::stringstream s;
+        if (!result.empty()) {
+            s << std::hex << result[0][0];
+            s >> id;
+            ++id;
+        }
+
+        s.clear();
+        s.str("");
+        s << std::uppercase << std::hex << std::setw(6) << std::setfill('0') << id;
+        return s.str();
+    }
 
     int MQTTSwitchHandler::Encode(const std::string& value, RBUF* buf,
                                   const std::string& deviceID) const
     {
-        std::stringstream s(deviceID);
         int id;
+        std::stringstream s;
+        s << std::hex << deviceID;
         s >> id;
 
-        buf->LIGHTING1.packetlength = sizeof(buf->LIGHTING1) -1;
-        buf->LIGHTING1.housecode = (BYTE)id; // FIXME
-        buf->LIGHTING1.packettype = pTypeLighting1;
-        buf->LIGHTING1.subtype = sTypeX10;
-        buf->LIGHTING1.rssi = 12;
-        buf->LIGHTING1.seqnbr = 0; // FIXME
-        buf->LIGHTING1.cmnd = (value == "1" ? light1_sOn : light1_sOff);
-        buf->LIGHTING1.unitcode = (BYTE)id;
+        buf->LIGHTING5.id1 = (id >> 16) & 255;
+        buf->LIGHTING5.id2 = (id >> 8) & 255;
+        buf->LIGHTING5.id3 = id & 255;
+        buf->LIGHTING5.packetlength = sizeof(buf->LIGHTING5) -1;
+        buf->LIGHTING5.packettype = pTypeLighting5;
+        buf->LIGHTING5.subtype = sTypeWBRelay;
+        buf->LIGHTING5.seqnbr = 0; // FIXME
 
-        return buf->LIGHTING1.unitcode;
+        buf->LIGHTING5.rssi = 7;
+        buf->LIGHTING5.cmnd = (value == "1" ? light5_sOn : light5_sOff);
+        buf->LIGHTING5.unitcode = (BYTE)id;
+
+        return buf->LIGHTING5.unitcode;
     }
 
     bool MQTTSwitchHandler::Decode(RBUF* buf, std::string* deviceID, std::string* value) const
     {
         _log.Log(LOG_NORM,
-                 "MQTTSwitchHandler(): subType 0x%02x, housecode %d, unitcode %d, cmnd 0x%02x",
-                 buf->LIGHTING1.subtype,
-                 buf->LIGHTING1.housecode,
-                 buf->LIGHTING1.unitcode,
-                 buf->LIGHTING1.cmnd);
+                 "MQTTSwitchHandler(): id %02X%02X%02X, subType 0x%02x, unitcode %d, cmnd 0x%02x",
+                 buf->LIGHTING5.id1,
+                 buf->LIGHTING5.id2,
+                 buf->LIGHTING5.id3,
+                 buf->LIGHTING5.subtype,
+                 buf->LIGHTING5.unitcode,
+                 buf->LIGHTING5.cmnd);
         std::stringstream s;
-        s << (int)buf->LIGHTING1.housecode;
+        s << std::uppercase << std::hex << std::setw(6) << std::setfill('0') <<
+            (((int)buf->LIGHTING5.id1 << 16) + ((int)buf->LIGHTING5.id2 << 8) + (int)buf->LIGHTING5.id3);
+        // s << std::uppercase << std::hex << std::setw(2) << std::setfill('0') <<
+        //     (int)buf->LIGHTING5.id1 << (int)buf->LIGHTING5.id2 << (int)buf->LIGHTING5.id3;
+        _log.Log(LOG_NORM, "(1)id: %s", s.str().c_str());
         *deviceID = s.str();
-        *value = buf->LIGHTING1.cmnd == light1_sOn ? "1" : "0";
+        _log.Log(LOG_NORM, "(2)id: %s", deviceID->c_str());
+        *value = buf->LIGHTING5.cmnd == light5_sOn ? "1" : "0";
         return true;
     }
 
@@ -480,7 +511,7 @@ void WBHomaBridge::SendValueToDomoticz(const MQTTAddress& address, MQTTValue* va
     memset(&buf, 0, sizeof(buf));
     typeHandler->Encode(value->value, &buf, value->devID);
 
-    _log.Log(LOG_NORM, "WBHomaBridge: writing param: hw id %d, devid '%s', value '%s'",
+    _log.Log(LOG_NORM, "WBHomaBridge: value to domoticz: hw id %d, devid '%s', value '%s'",
              m_HwdID, value->devID.c_str(), value->value.c_str());
 
     sDecodeRXMessage(this, (const unsigned char*)&buf);
@@ -496,7 +527,7 @@ void WBHomaBridge::SendValueToDomoticz(const MQTTAddress& address, MQTTValue* va
         _log.Log(LOG_ERROR, "WBHomaBridge: bad name update result for %s: %d",
                  address.device_control_id.c_str(), r);
 
-    if (typeHandler->DevType() == pTypeLighting1)
+    if (typeHandler->DevType() == pTypeLighting5)
         m_sql.execute("UPDATE DeviceStatus SET SwitchType = 0 "
                       "WHERE HardwareID = ? AND DeviceID = ? AND "
                       "Type = ? AND SubType = ?",
@@ -534,7 +565,7 @@ void WBHomaBridge::Do_Work()
 //      (don't build WBHomaBridge if it's not found)
 // TBD: handle deletion of controls
 //      (when type becomes empty or unrecognized, remote DeviceStatus entry)
-// TBD: use type other than pTypeLighting1 in order to avoid 255 switch limit
 // TBD: show proper ID colum in 'Devices' table in the browser
 // TBD: generate unit ids
 // TBD: check packet length in Decode() methods (need to add arg)
+// TBD: getlightswitches cmd: IsDimmer is important (depends on SwitchType field of DeviceStatus)

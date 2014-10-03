@@ -367,6 +367,7 @@ SDK version 4.9
 #define sTypeAoke 0x07
 #define sTypeTRC02_2 0x08
 #define sTypeEurodomest 0x09
+#define sTypeWBRelay 0xa0
 
 #define light5_sOff 0x0
 #define light5_sOn 0x1

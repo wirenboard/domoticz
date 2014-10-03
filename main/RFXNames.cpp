@@ -461,6 +461,7 @@ const char *RFX_Type_SubType_Desc(const unsigned char dType, const unsigned char
 		{ pTypeLighting5, sTypeTRC02_2, "TRC02_2 (RGB)" },
 		{ pTypeLighting5, sTypeAoke, "Aoke" },
 		{ pTypeLighting5, sTypeEurodomest, "Eurodomest" },
+        { pTypeLighting5, sTypeWBRelay, "WB Relay" },
 
 
 		{ pTypeLighting6, sTypeBlyss, "Blyss" },
@@ -666,6 +667,7 @@ const char *RFX_Type_SubType_Values(const unsigned char dType, const unsigned ch
 		{ pTypeLighting5, sTypeTRC02_2, "Status" },
 		{ pTypeLighting5, sTypeAoke, "Status" },
 		{ pTypeLighting5, sTypeEurodomest, "Status" },
+		{ pTypeLighting5, sTypeWBRelay, "Status" },
 
 		{ pTypeLighting6, sTypeBlyss, "Status" },
 
@@ -1078,6 +1080,17 @@ void GetLightStatus(
 				break;
 			case light5_sGroupOn:
 				lstatus = "Group On";
+				break;
+			}
+			break;
+		case sTypeWBRelay:
+			switch (nValue)
+			{
+			case light5_sOff:
+				lstatus = "Off";
+				break;
+			case light5_sOn:
+				lstatus = "On";
 				break;
 			}
 			break;
