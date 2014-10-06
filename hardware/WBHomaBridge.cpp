@@ -70,6 +70,7 @@ namespace {
         std::string AddressMapKey(const std::string& deviceID) const;
         virtual int DevType() const = 0;
         virtual int SubType() const = 0;
+        virtual int SwitchType() const { return -1; }
         virtual std::string GenerateDeviceID(int hardwareID) const;
         virtual int Encode(const std::string& value, RBUF* buf, const std::string& deviceID) const = 0;
         virtual bool Decode(RBUF* buf, std::string* deviceID, std::string* value) const;
@@ -150,20 +151,21 @@ namespace {
         return buf->TEMP.id2; // unit id
     }
 
-    class MQTTSwitchHandler: public MQTTTypeHandler
+    class MQTTLightHandlerBase: public MQTTTypeHandler
     {
     public:
-        MQTTSwitchHandler(): MQTTTypeHandler("switch") {}
+        MQTTLightHandlerBase(const char* type): MQTTTypeHandler(type) {}
 
         int DevType() const { return pTypeLighting5; }
-        int SubType() const { return sTypeWBRelay; }
 
         std::string GenerateDeviceID(int hardwareID) const;
         int Encode(const std::string& value, RBUF* buf, const std::string& deviceID) const;
         bool Decode(RBUF* buf, std::string* deviceID, std::string* value) const;
+    protected:
+        virtual bool UpdateValue(std::string* value, int cmnd) const = 0;
     };
 
-    std::string MQTTSwitchHandler::GenerateDeviceID(int hardwareID) const
+    std::string MQTTLightHandlerBase::GenerateDeviceID(int hardwareID) const
     {
         std::vector< std::vector<std::string> > result =
             m_sql.query("SELECT MAX(DeviceID) FROM DeviceStatus "
@@ -183,7 +185,7 @@ namespace {
         return s.str();
     }
 
-    int MQTTSwitchHandler::Encode(const std::string& value, RBUF* buf,
+    int MQTTLightHandlerBase::Encode(const std::string& value, RBUF* buf,
                                   const std::string& deviceID) const
     {
         int id;
@@ -196,7 +198,7 @@ namespace {
         buf->LIGHTING5.id3 = id & 255;
         buf->LIGHTING5.packetlength = sizeof(buf->LIGHTING5) -1;
         buf->LIGHTING5.packettype = pTypeLighting5;
-        buf->LIGHTING5.subtype = sTypeWBRelay;
+        buf->LIGHTING5.subtype = SubType();
         buf->LIGHTING5.seqnbr = 0; // FIXME
 
         buf->LIGHTING5.rssi = 7;
@@ -206,7 +208,7 @@ namespace {
         return buf->LIGHTING5.unitcode;
     }
 
-    bool MQTTSwitchHandler::Decode(RBUF* buf, std::string* deviceID, std::string* value) const
+    bool MQTTLightHandlerBase::Decode(RBUF* buf, std::string* deviceID, std::string* value) const
     {
         _log.Log(LOG_NORM,
                  "MQTTSwitchHandler(): id %02X%02X%02X, subType 0x%02x, unitcode %d, cmnd 0x%02x",
@@ -224,13 +226,95 @@ namespace {
         _log.Log(LOG_NORM, "(1)id: %s", s.str().c_str());
         *deviceID = s.str();
         _log.Log(LOG_NORM, "(2)id: %s", deviceID->c_str());
-        *value = buf->LIGHTING5.cmnd == light5_sOn ? "1" : "0";
+        return UpdateValue(value, buf->LIGHTING5.cmnd);
+    }
+
+    class MQTTSwitchHandler: public MQTTLightHandlerBase
+    {
+    public:
+        MQTTSwitchHandler(): MQTTLightHandlerBase("switch") {}
+
+        int SubType() const { return sTypeWBRelay; }
+        int SwitchType() const { return STYPE_OnOff; }
+
+    protected:
+        bool UpdateValue(std::string* value, int cmnd) const;
+    };
+
+    bool MQTTSwitchHandler::UpdateValue(std::string* value, int cmnd) const
+    {
+        *value = cmnd == light5_sOn ? "1" : "0";
         return true;
+    }
+
+    class MQTTRGBHandler: public MQTTLightHandlerBase
+    {
+    public:
+        MQTTRGBHandler(): MQTTLightHandlerBase("rgb") {}
+
+        int SubType() const { return sTypeWBRGB; }
+        int SwitchType() const { return STYPE_Dimmer; }
+    protected:
+        bool UpdateValue(std::string* value, int cmnd) const;
+    private:
+        std::string GetRGB(int hue) const;
+    };
+
+    bool MQTTRGBHandler::UpdateValue(std::string* value, int cmnd) const
+    {
+        // TBD: should handle light5_sRGBcolormin+1+x, light5_sRGBoff, light5_sRGBdim
+        // hue: when (light5_sRGBcolormin+1) is subtracted, the remaining value
+        // is in range 0 <= x <= 78, corresponding to 0 <= x <= 360 value of the
+        // original control.
+        _log.Log(LOG_NORM, "MQTTRGBHandler::UpdateValue(): %d", cmnd);
+        return false;
+    }
+    
+    std::string MQTTRGBHandler::GetRGB(int hue) const
+    {
+        int x = round(255. * (double)(hue % 60) / 60.);
+        if(hue == 360)
+            hue = 0;
+        int r, g, b;
+        if (hue < 60) {
+            r = 255;
+            g = x;
+            b = 0;
+        } else if (hue < 120) {
+            r = 255 - x;
+            g = 255;
+            b = 0;
+        } else if (hue < 180) {
+            r = 0;
+            g = 255;
+            b = x;
+        } else if (hue < 240) {
+            r = 0;
+            g = 255 - x;
+            b = 255;
+        } else if (hue < 300) {
+            r = x;
+            g = 0;
+            b = 255;
+        } else if (hue < 360) {
+            r = 255;
+            g = 0;
+            b = 255 - x;
+        } else {
+            r = 0;
+            g = 0;
+            b = 0;
+        }
+
+        std::stringstream s;
+        s << r << ";" << g << ";" << b;
+        return s.str();
     }
 
     MQTTTypeHandler* type_handlers[] = {
         new MQTTTemperatureHandler(),
         new MQTTSwitchHandler(),
+        new MQTTRGBHandler(),
         0
     };
 
@@ -411,15 +495,15 @@ void WBHomaBridge::WriteToHardware(const char *pdata, const unsigned char)
     }
 
     std::string deviceID, value;
-    typeHandler->Decode(buf, &deviceID, &value);
-
-    AddressMap::iterator it = d->m_addresses.find(typeHandler->AddressMapKey(deviceID));
-    if (it == d->m_addresses.end()) {
-        _log.Log(LOG_ERROR, "WBHomaBridge::WriteToHardware(): unknown device id %s",
-                 deviceID.c_str());
-        return;
+    if (typeHandler->Decode(buf, &deviceID, &value)) {
+        AddressMap::iterator it = d->m_addresses.find(typeHandler->AddressMapKey(deviceID));
+        if (it == d->m_addresses.end()) {
+            _log.Log(LOG_ERROR, "WBHomaBridge::WriteToHardware(): unknown device id %s",
+                     deviceID.c_str());
+            return;
+        }
+        d->m_handler->WriteControlValue(it->second, value);
     }
-    d->m_handler->WriteControlValue(it->second, value);
 }
 
 void WBHomaBridge::HandleMQTTMessage(const MQTTAddress& address, int payload_type,
@@ -527,12 +611,17 @@ void WBHomaBridge::SendValueToDomoticz(const MQTTAddress& address, MQTTValue* va
         _log.Log(LOG_ERROR, "WBHomaBridge: bad name update result for %s: %d",
                  address.device_control_id.c_str(), r);
 
-    if (typeHandler->DevType() == pTypeLighting5)
-        m_sql.execute("UPDATE DeviceStatus SET SwitchType = 0 "
-                      "WHERE HardwareID = ? AND DeviceID = ? AND "
-                      "Type = ? AND SubType = ?",
-                      SQLParamList() << m_HwdID << value->devID <<
-                      typeHandler->DevType() << typeHandler->SubType());
+    if (typeHandler->SwitchType() >= 0) {
+        r = m_sql.execute("UPDATE DeviceStatus SET SwitchType = ? "
+                          "WHERE HardwareID = ? AND DeviceID = ? AND "
+                          "Type = ? AND SubType = ?",
+                          SQLParamList() << typeHandler->SwitchType() <<
+                          m_HwdID << value->devID <<
+                          typeHandler->DevType() << typeHandler->SubType());
+        if (r != 1)
+            _log.Log(LOG_ERROR, "WBHomaBridge: bad switch type update result for %s: %d",
+                     address.device_control_id.c_str(), r);
+    }
     return;
 }
 
@@ -568,4 +657,8 @@ void WBHomaBridge::Do_Work()
 // TBD: show proper ID colum in 'Devices' table in the browser
 // TBD: generate unit ids
 // TBD: check packet length in Decode() methods (need to add arg)
-// TBD: getlightswitches cmd: IsDimmer is important (depends on SwitchType field of DeviceStatus)
+// TBD: detect 'White' channel in the same device as RGB -- and provide RGBW control
+// TBD: 'Blinds' bug: when clearing DB / MQTT<->domoticz bindings, restarting domoticz & reloading 'Lights' page,
+//      then showing 'Devices' page and trying to add a light switch (RGB at least) a combo box is
+//      shown with switch types and 'Blinds' selected by default, which becomes the type of the
+//      switch -- which is wrong.

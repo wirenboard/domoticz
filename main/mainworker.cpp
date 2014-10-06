@@ -3631,7 +3631,6 @@ unsigned long long MainWorker::decode_Lighting5(const CDomoticzHardwareBase *pHa
 		sprintf(szTmp,"%02X%02X%02X", pResponse->LIGHTING5.id1, pResponse->LIGHTING5.id2, pResponse->LIGHTING5.id3);
 	else
 		sprintf(szTmp,"%02X%02X", pResponse->LIGHTING5.id2, pResponse->LIGHTING5.id3);
-    _log.Log(LOG_NORM, "zzz\n");
 	std::string ID = szTmp;
 	unsigned char Unit=pResponse->LIGHTING5.unitcode;
 	unsigned char cmnd=pResponse->LIGHTING5.cmnd;
@@ -3644,7 +3643,7 @@ unsigned long long MainWorker::decode_Lighting5(const CDomoticzHardwareBase *pHa
 
 	bool bDoUpdate=true;
 	if ((subType == sTypeTRC02) || (subType == sTypeTRC02_2) || (subType == sTypeAoke) || (subType == sTypeEurodomest) ||
-        (subType == sTypeWBRelay))
+        (subType == sTypeWBRelay) || (subType == sTypeWBRGB))
 	{
 		if (
 			(pResponse->LIGHTING5.cmnd != light5_sOff)&&
@@ -3950,7 +3949,10 @@ unsigned long long MainWorker::decode_Lighting5(const CDomoticzHardwareBase *pHa
 			}
 			break;
 		case sTypeWBRelay:
-			WriteMessage("subtype       = WB Relay");
+        case sTypeWBRGB:
+			WriteMessage(pResponse->LIGHTING5.subtype == sTypeWBRelay ?
+                         "subtype       = WB Relay" :
+                         "subtype       = WB RGB");
 			sprintf(szTmp, "Sequence nbr  = %d", pResponse->LIGHTING5.seqnbr);
 			WriteMessage(szTmp);
 			sprintf(szTmp,"ID            = %02X%02X%02X",
@@ -3967,7 +3969,18 @@ unsigned long long MainWorker::decode_Lighting5(const CDomoticzHardwareBase *pHa
 			case light5_sOn:
 				WriteMessage("On");
 				break;
+            case light5_sRGBdim:
+                WriteMessage("Dim");
+                sprintf(szTmp, "Level         = %d", pResponse->LIGHTING5.level);
+                WriteMessage(szTmp);
+                break;
 			default:
+                if (pResponse->LIGHTING5.cmnd > light5_sRGBcolormin) {
+                    WriteMessage("SetColor");
+                    sprintf(szTmp, "Hue           = %d",
+                            pResponse->LIGHTING5.cmnd - light5_sRGBcolormin - 1);
+                    WriteMessage(szTmp);
+                }
 				WriteMessage("UNKNOWN");
 				break;
 			}
@@ -8223,8 +8236,10 @@ bool MainWorker::SwitchLightInt(const std::vector<std::string> &sd, std::string 
 			{
 				level=31;
 			}
-			if (level>31)
+			if (level > 31 && dSubType != sTypeWBRGB)
 				level=31;
+            else if (level > 255 && dSubType == sTypeWBRGB)
+                level=255;
 			lcmd.LIGHTING5.level=(unsigned char)level;
 			lcmd.LIGHTING5.filler=0;
 			lcmd.LIGHTING5.rssi=7;
@@ -8252,7 +8267,7 @@ bool MainWorker::SwitchLightInt(const std::vector<std::string> &sd, std::string 
 				else
 					WriteToHardware(HardwareID,(const char*)&lcmd,sizeof(lcmd.LIGHTING5));
 			}
-			else if ((dSubType == sTypeTRC02) || (dSubType == sTypeTRC02_2))
+			else if ((dSubType == sTypeTRC02) || (dSubType == sTypeTRC02_2) || (dSubType == sTypeWBRGB))
 			{
 				if (switchcmd!="Off")
 				{
@@ -8291,6 +8306,11 @@ bool MainWorker::SwitchLightInt(const std::vector<std::string> &sd, std::string 
 						}
 					}
 				}
+                if (switchcmd == "Set Level") {
+					lcmd.LIGHTING5.cmnd=light5_sRGBdim;
+                    lcmd.LIGHTING5.level = level;
+					WriteToHardware(HardwareID,(const char*)&lcmd,sizeof(lcmd.LIGHTING5));
+                }
 			}
 			else
 				WriteToHardware(HardwareID,(const char*)&lcmd,sizeof(lcmd.LIGHTING5));

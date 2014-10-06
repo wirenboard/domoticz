@@ -462,6 +462,7 @@ const char *RFX_Type_SubType_Desc(const unsigned char dType, const unsigned char
 		{ pTypeLighting5, sTypeAoke, "Aoke" },
 		{ pTypeLighting5, sTypeEurodomest, "Eurodomest" },
         { pTypeLighting5, sTypeWBRelay, "WB Relay" },
+        { pTypeLighting5, sTypeWBRGB, "WB RGB" },
 
 
 		{ pTypeLighting6, sTypeBlyss, "Blyss" },
@@ -668,6 +669,7 @@ const char *RFX_Type_SubType_Values(const unsigned char dType, const unsigned ch
 		{ pTypeLighting5, sTypeAoke, "Status" },
 		{ pTypeLighting5, sTypeEurodomest, "Status" },
 		{ pTypeLighting5, sTypeWBRelay, "Status" },
+		{ pTypeLighting5, sTypeWBRGB, "Status" },
 
 		{ pTypeLighting6, sTypeBlyss, "Status" },
 
@@ -1083,6 +1085,10 @@ void GetLightStatus(
 				break;
 			}
 			break;
+        case sTypeWBRGB:
+			bHaveGroupCmd = true;
+			bHaveDimmer=true;
+			maxDimLevel=255;
 		case sTypeWBRelay:
 			switch (nValue)
 			{
@@ -1505,7 +1511,7 @@ bool GetLightCommand(
 				return true;
 			}
 		}
-		else if ((dSubType == sTypeTRC02) || (dSubType == sTypeTRC02_2))
+		else if ((dSubType == sTypeTRC02) || (dSubType == sTypeTRC02_2) || (dSubType == sTypeWBRGB))
 		{
 			if (switchcmd=="Set Color")
 			{
