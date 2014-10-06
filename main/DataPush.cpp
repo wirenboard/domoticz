@@ -27,8 +27,7 @@ void CDataPush::DoWork(const unsigned long long DeviceRowIdxIn)
 {
 	DeviceRowIdx = DeviceRowIdxIn;
 	int fActive;
-	m_sql.GetPreferencesVar("FibaroActive", fActive);
-	if (fActive==1) {
+	if (m_sql.GetPreferencesVar("FibaroActive", fActive) && fActive==1) {
 		DoFibaroPush();
 	}
 }
