@@ -7593,7 +7593,9 @@ void CWebServer::GetJSonDevices(Json::Value &root, const std::string &rused, con
 					root["result"][ii]["Image"]="Light";
 				
 
-				if (switchtype==STYPE_Dimmer && (dType != pTypeLighting5 || dSubType != sTypeWBRGB))
+				if (switchtype==STYPE_Dimmer && (dType != pTypeLighting5 ||
+                                                 (dSubType != sTypeWBRGB &&
+                                                  dSubType != sTypeWBDimmer)))
 				{
 					root["result"][ii]["Level"]=LastLevel;
 					int iLevel=round((float(maxDimLevel)/100.0f)*LastLevel);

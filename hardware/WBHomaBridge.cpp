@@ -495,6 +495,54 @@ namespace {
         return s.str();
     }
 
+    class MQTTDimmerControl: public MQTTLightControlBase,
+                             public DomoticzType<pTypeLighting5, sTypeWBDimmer>
+    {
+    public:
+        MQTTDimmerControl(const MQTTAddress& address,
+                          const std::string& device_id,
+                          int hardwareID,
+                          boost::shared_ptr<IMQTTValueWriter> writer)
+            : MQTTLightControlBase(address, device_id, hardwareID, writer) {}
+        int SwitchType() const { return STYPE_Dimmer; }
+        void MQTTToDomoticz(const std::string& value, RBUF* buf);
+        void DomoticzToMQTT(RBUF* buf);
+    };
+
+    void MQTTDimmerControl::MQTTToDomoticz(const std::string& value, RBUF* buf)
+    {
+        MQTTLightControlBase::MQTTToDomoticz(value, buf);
+        _log.Log(LOG_NORM, "MQTTRGBControl::MQTTToDomoticz(): '%s': value '%s'",
+                 Address().Topic().c_str(), value.c_str());
+        std::stringstream s(value);
+        int level;
+        s >> level;
+        // FIXME: don't hardcode max value (255), use max from mqtt
+        level = (int)round((double)level * 100. / 255.);
+        buf->LIGHTING5.cmnd = level ? light5_sSetLevel : light5_sRGBoff;
+        buf->LIGHTING5.level = level;
+    }
+
+    void MQTTDimmerControl::DomoticzToMQTT(RBUF* buf)
+    {
+        std::stringstream s;
+        switch (buf->LIGHTING5.cmnd) {
+        case light5_sRGBoff:
+            PublishValue("0");
+            break;
+        case light5_sSetLevel:
+            _log.Log(LOG_NORM, "MQTTDimmerControl::DomoticzToMQTT(): set level to %d",
+                     (int)buf->LIGHTING5.level);
+            // FIXME: don't hardcode max value (255), use max from mqtt
+            s << (int)round((double)buf->LIGHTING5.level * 255. / 100.);
+            PublishValue(s.str());
+            break;
+        default:
+            _log.Log(LOG_ERROR, "MQTTDimmerControl::DomoticzToMQTT(): unknown command 0x%02x",
+                     buf->LIGHTING5.cmnd, s.str().c_str());
+        }
+    }
+
     // slave-only, used for RGB dimmer 'RGB_All' value
     class MQTTRangeControl: public MQTTControl,
                             public DomoticzType<-1, -1>
@@ -512,6 +560,7 @@ namespace {
         new TemperatureControlType<MQTTTemperatureControl>("temperature"),
         new Lighting5ControlType<MQTTSwitchControl>("switch"),
         new Lighting5ControlType<MQTTRGBControl>("rgb"),
+        new Lighting5ControlType<MQTTDimmerControl>("dimmer"),
         new MQTTControlType<MQTTRangeControl>("range"), // needed for RGB_All
         0
     };
@@ -973,3 +1022,5 @@ void WBHomaBridge::Do_Work()
 //      then showing 'Devices' page and trying to add a light switch (RGB at least) a combo box is
 //      shown with switch types and 'Blinds' selected by default, which becomes the type of the
 //      switch -- which is wrong.
+// TBD: special type instead of name for RGB_All (rgb_dimmer)
+// TBD: don't use hardcoded min/max values for dimmer/rgb_dimmer types

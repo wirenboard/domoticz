@@ -463,6 +463,7 @@ const char *RFX_Type_SubType_Desc(const unsigned char dType, const unsigned char
 		{ pTypeLighting5, sTypeEurodomest, "Eurodomest" },
         { pTypeLighting5, sTypeWBRelay, "WB Relay" },
         { pTypeLighting5, sTypeWBRGB, "WB RGB" },
+        { pTypeLighting5, sTypeWBDimmer, "WB Dimmer" },
 
 
 		{ pTypeLighting6, sTypeBlyss, "Blyss" },
@@ -670,6 +671,7 @@ const char *RFX_Type_SubType_Values(const unsigned char dType, const unsigned ch
 		{ pTypeLighting5, sTypeEurodomest, "Status" },
 		{ pTypeLighting5, sTypeWBRelay, "Status" },
 		{ pTypeLighting5, sTypeWBRGB, "Status" },
+		{ pTypeLighting5, sTypeWBDimmer, "Status" },
 
 		{ pTypeLighting6, sTypeBlyss, "Status" },
 
@@ -928,7 +930,7 @@ void GetLightStatus(
 	case pTypeLighting5:
 		if (dSubType==sTypeLivolo)
 			llevel=int((100.0f/7.0f)*atof(sValue.c_str()));
-		else if (dSubType==sTypeWBRGB)
+		else if (dSubType==sTypeWBRGB || dSubType==sTypeWBDimmer)
 			llevel=atoi(sValue.c_str());
         else
 			llevel=int((100.0f/31.0f)*atof(sValue.c_str()));
@@ -1088,6 +1090,7 @@ void GetLightStatus(
 			}
 			break;
         case sTypeWBRGB:
+        case sTypeWBDimmer:
 			bHaveGroupCmd = true;
 			bHaveDimmer=true;
 			maxDimLevel=100;

@@ -3643,7 +3643,7 @@ unsigned long long MainWorker::decode_Lighting5(const CDomoticzHardwareBase *pHa
 
 	bool bDoUpdate=true;
 	if ((subType == sTypeTRC02) || (subType == sTypeTRC02_2) || (subType == sTypeAoke) || (subType == sTypeEurodomest) ||
-        (subType == sTypeWBRelay) || (subType == sTypeWBRGB))
+        (subType == sTypeWBRelay) || (subType == sTypeWBRGB) || (subType == sTypeWBDimmer))
 	{
 		if (
 			(pResponse->LIGHTING5.cmnd != light5_sOff)&&
@@ -3951,9 +3951,12 @@ unsigned long long MainWorker::decode_Lighting5(const CDomoticzHardwareBase *pHa
 			break;
 		case sTypeWBRelay:
         case sTypeWBRGB:
+        case sTypeWBDimmer:
 			WriteMessage(pResponse->LIGHTING5.subtype == sTypeWBRelay ?
                          "subtype       = WB Relay" :
-                         "subtype       = WB RGB");
+                         pResponse->LIGHTING5.subtype == sTypeWBRGB ?
+                         "subtype       = WB RGB" :
+                         "subtype       = WB Dimmer");
 			sprintf(szTmp, "Sequence nbr  = %d", pResponse->LIGHTING5.seqnbr);
 			WriteMessage(szTmp);
 			sprintf(szTmp,"ID            = %02X%02X%02X",
@@ -8237,9 +8240,9 @@ bool MainWorker::SwitchLightInt(const std::vector<std::string> &sd, std::string 
 			{
 				level=31;
 			}
-			if (level > 31 && dSubType != sTypeWBRGB)
+			if (level > 31 && dSubType != sTypeWBRGB && dSubType != sTypeWBDimmer)
 				level=31;
-            else if (level > 100 && dSubType == sTypeWBRGB)
+            else if (level > 100 && (dSubType == sTypeWBRGB || dSubType == sTypeWBDimmer))
                 level=100;
 			lcmd.LIGHTING5.level=(unsigned char)level;
 			lcmd.LIGHTING5.filler=0;
@@ -8268,7 +8271,7 @@ bool MainWorker::SwitchLightInt(const std::vector<std::string> &sd, std::string 
 				else
 					WriteToHardware(HardwareID,(const char*)&lcmd,sizeof(lcmd.LIGHTING5));
 			}
-			else if ((dSubType == sTypeTRC02) || (dSubType == sTypeTRC02_2) || (dSubType == sTypeWBRGB))
+			else if ((dSubType == sTypeTRC02) || (dSubType == sTypeTRC02_2) || (dSubType == sTypeWBRGB) || (dSubType == sTypeWBDimmer))
 			{
 				if (switchcmd!="Off")
 				{
