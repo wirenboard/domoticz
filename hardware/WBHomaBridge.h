@@ -3,27 +3,30 @@
 
 #include "stdafx.h"
 #include "DomoticzHardware.h"
+#include "../main/RFXtrx.h" // more hw types
 
 struct MQTTAddress;
-struct MQTTValue;
+struct MQTTTemporaryValue;
 struct WBHomaBridgePrivate;
 
 class WBHomaBridge: public CDomoticzHardwareBase
 {
 public:
     WBHomaBridge(const int ID, const std::string IPAddress, const unsigned short usIPPort);
-    ~WBHomaBridge();
     void WriteToHardware(const char *pdata, const unsigned char length);
     void HandleMQTTMessage(const MQTTAddress& address, int payload_type,
                            const std::string& payload);
     void Ready();
+    void SendValueToDomoticz(RBUF* rbuf,
+                             const std::string& device_id,
+                             const std::string& name,
+                             int switch_type);
 private:
     bool StartHardware();
     bool StopHardware();
-    void SendValueToDomoticz(const MQTTAddress& address, MQTTValue* value);
     void Do_Work();
 
-    WBHomaBridgePrivate* d;
+    boost::shared_ptr<WBHomaBridgePrivate> d;
 };
 
 #endif

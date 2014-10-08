@@ -3649,7 +3649,8 @@ unsigned long long MainWorker::decode_Lighting5(const CDomoticzHardwareBase *pHa
 			(pResponse->LIGHTING5.cmnd != light5_sOff)&&
 			(pResponse->LIGHTING5.cmnd != light5_sOn)&&
 			(pResponse->LIGHTING5.cmnd != light5_sGroupOff)&&
-			(pResponse->LIGHTING5.cmnd != light5_sGroupOn)
+			(pResponse->LIGHTING5.cmnd != light5_sGroupOn)&&
+            (pResponse->LIGHTING5.cmnd != light5_sSetLevel)
 			)
 		{
 			bDoUpdate=false;
@@ -3969,8 +3970,8 @@ unsigned long long MainWorker::decode_Lighting5(const CDomoticzHardwareBase *pHa
 			case light5_sOn:
 				WriteMessage("On");
 				break;
-            case light5_sRGBdim:
-                WriteMessage("Dim");
+            case light5_sSetLevel:
+                WriteMessage("SetLevel");
                 sprintf(szTmp, "Level         = %d", pResponse->LIGHTING5.level);
                 WriteMessage(szTmp);
                 break;
@@ -8238,8 +8239,8 @@ bool MainWorker::SwitchLightInt(const std::vector<std::string> &sd, std::string 
 			}
 			if (level > 31 && dSubType != sTypeWBRGB)
 				level=31;
-            else if (level > 255 && dSubType == sTypeWBRGB)
-                level=255;
+            else if (level > 100 && dSubType == sTypeWBRGB)
+                level=100;
 			lcmd.LIGHTING5.level=(unsigned char)level;
 			lcmd.LIGHTING5.filler=0;
 			lcmd.LIGHTING5.rssi=7;
@@ -8307,7 +8308,7 @@ bool MainWorker::SwitchLightInt(const std::vector<std::string> &sd, std::string 
 					}
 				}
                 if (switchcmd == "Set Level") {
-					lcmd.LIGHTING5.cmnd=light5_sRGBdim;
+					lcmd.LIGHTING5.cmnd=light5_sSetLevel;
                     lcmd.LIGHTING5.level = level;
 					WriteToHardware(HardwareID,(const char*)&lcmd,sizeof(lcmd.LIGHTING5));
                 }

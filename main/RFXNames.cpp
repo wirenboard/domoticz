@@ -928,7 +928,9 @@ void GetLightStatus(
 	case pTypeLighting5:
 		if (dSubType==sTypeLivolo)
 			llevel=int((100.0f/7.0f)*atof(sValue.c_str()));
-		else
+		else if (dSubType==sTypeWBRGB)
+			llevel=atoi(sValue.c_str());
+        else
 			llevel=int((100.0f/31.0f)*atof(sValue.c_str()));
 		switch (dSubType)
 		{
@@ -1088,7 +1090,7 @@ void GetLightStatus(
         case sTypeWBRGB:
 			bHaveGroupCmd = true;
 			bHaveDimmer=true;
-			maxDimLevel=255;
+			maxDimLevel=100;
 		case sTypeWBRelay:
 			switch (nValue)
 			{

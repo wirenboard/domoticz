@@ -1453,6 +1453,7 @@ define(['app'], function (app) {
 									else {
 													img='<img src="images/dimmer48-off.png" title="' + $.i18n("Turn On") + '" onclick="SwitchLight(' + item.idx + ',\'On\',RefreshLights,' + item.Protected +');" class="lcursor" height="48" width="48">';
 									}
+									$(id + ' .dimslider').slider("option", "value", item.LevelInt);
 					}
 					else if (item.SwitchType == "Dusk Sensor") {
 									if (
