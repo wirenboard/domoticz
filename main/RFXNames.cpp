@@ -172,7 +172,9 @@ const char *Hardware_Type_Desc(int hType)
 		{ HTYPE_TOONTHERMOSTAT, "Toon Thermostat" },
 		{ HTYPE_ECODEVICES, "Eco Devices via LAN interface" },
 		{ HTYPE_HARMONY_HUB, "Logitech Harmony Hub" },
+#ifdef WITH_WBHOMABRIDGE
 		{ HTYPE_WBHomaBridge, "WB HomA Bridge (LAN)" },
+#endif
 		{ 0, NULL, NULL }
 	};
 	return findTableIDSingle1 (Table, hType);
@@ -669,9 +671,11 @@ const char *RFX_Type_SubType_Values(const unsigned char dType, const unsigned ch
 		{ pTypeLighting5, sTypeTRC02_2, "Status" },
 		{ pTypeLighting5, sTypeAoke, "Status" },
 		{ pTypeLighting5, sTypeEurodomest, "Status" },
+#ifdef WITH_WBHOMABRIDGE
 		{ pTypeLighting5, sTypeWBRelay, "Status" },
 		{ pTypeLighting5, sTypeWBRGB, "Status" },
 		{ pTypeLighting5, sTypeWBDimmer, "Status" },
+#endif
 
 		{ pTypeLighting6, sTypeBlyss, "Status" },
 

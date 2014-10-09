@@ -56,7 +56,9 @@
 	#include "../hardware/Gpio.h"
 	#include "../hardware/GpioPin.h"
 #endif
-#include "../hardware/WBHomaBridge.h"
+#ifdef WITH_WBHOMABRIDGE
+	#include "../hardware/WBHomaBridge.h"
+#endif
 
 #ifdef WIN32
     #include "dirent_windows.h"
@@ -555,8 +557,10 @@ bool MainWorker::AddHardwareFromParams(
 		pHardware = new CGpio(ID);
 #endif
 		break;
+#ifdef WITH_WBHOMABRIDGE
     case HTYPE_WBHomaBridge:
         pHardware = new WBHomaBridge(ID, Address, Port);
+#endif
 	}
 
 	if (pHardware)

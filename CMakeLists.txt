@@ -112,16 +112,13 @@ endif()
 find_path(MOSQUITTOPP_INCLUDE_DIR mosquittopp.h)
 find_library(MOSQUITTOPP_LIBRARY mosquittopp)
 find_library(MOSQUITTO_LIBRARY mosquitto)
-if(NOT MOSQUITTOPP_INCLUDE_DIR)
-  message(SEND_ERROR "Failed to find mosquittopp.h")
+if(MOSQUITTOPP_INCLUDE_DIR AND MOSQUITTOPP_LIBRARY AND MOSQUITTO_LIBRARY)
+  include_directories(${MOSQUITTOPP_INCLUDE_DIR})
+  add_definitions(-DWITH_WBHOMABRIDGE)
+  SET(HAVE_MOSQUITOPP TRUE)
+else()
+  message(STATUS "==== working mosquitopp not found, support for WBHomaBridge disabled")
 endif()
-if(NOT MOSQUITTOPP_LIBRARY)
-  message(SEND_ERROR "Failed to find mosquittopp library")
-endif()
-if(NOT MOSQUITTO_LIBRARY)
-  message(SEND_ERROR "Failed to find mosquitto library")
-endif()
-include_directories(${MOSQUITTOPP_INCLUDE_DIR})
 
 #FIND_PROGRAM(SVN_EXECUTABLE svn
 #  DOC "subversion command line client")
@@ -228,7 +225,6 @@ hardware/WOL.cpp
 hardware/Wunderground.cpp
 hardware/YouLess.cpp
 hardware/ZWaveBase.cpp
-hardware/WBHomaBridge.cpp
 smtpclient/SMTPClient.cpp
 tcpserver/TCPClient.cpp
 tcpserver/TCPServer.cpp
@@ -245,6 +241,11 @@ json/json_reader.cpp
 json/json_value.cpp
 json/json_writer.cpp
 )
+
+if (HAVE_MOSQUITOPP)
+  SET(domoticz_SRCS ${domoticz_SRCS} hardware/WBHomaBridge.cpp)
+endif()
+
 add_executable(domoticz ${domoticz_SRCS})
 
 # explicitly say that the executable depends on the revisiontag

@@ -1010,17 +1010,9 @@ void WBHomaBridge::Do_Work()
 // TBD: make mqtt loop timeout a constant
 // TBD: obtain version from git repository, too (during build)
 // TBD: make sure notifications work
-// TBD: send rgb from mqtt to domoticz (if possible)
 // TBD: make mosquitto an optional dependency
 //      (don't build WBHomaBridge if it's not found)
 // TBD: handle deletion of controls
 //      (when type becomes empty or unrecognized, remote DeviceStatus entry)
-// TBD: show proper ID colum in 'Devices' table in the browser
-// TBD: generate unit ids
-// TBD: check packet length in Decode() methods (need to add arg)
-// TBD: 'Blinds' bug: when clearing DB / MQTT<->domoticz bindings, restarting domoticz & reloading 'Lights' page,
-//      then showing 'Devices' page and trying to add a light switch (RGB at least) a combo box is
-//      shown with switch types and 'Blinds' selected by default, which becomes the type of the
-//      switch -- which is wrong.
-// TBD: special type instead of name for RGB_All (rgb_dimmer)
+// TBD: check packet length in DomoticzToMQTT methods
 // TBD: don't use hardcoded min/max values for dimmer/rgb_dimmer types
