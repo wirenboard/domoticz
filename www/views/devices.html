@@ -8,7 +8,7 @@
 		</table>
     </form>
 </div>
-<div id="dialog-addlightdevice" title="Add Light/Switch Device">
+<div id="dialog-dev-addlightdevice" title="Add Light/Switch Device">
     <form>
         <table class="display" id="lighttable" border="0" cellpadding="0" cellspacing="0">
         <tr>
@@ -79,18 +79,18 @@ function AddLightDevice(idx, name)
 {
     $.devIdx = idx;
     
-    $("#dialog-addlightdevice #combosubdevice").html("");
+    $("#dialog-dev-addlightdevice #combosubdevice").html("");
     
 		$.each($.LightsAndSwitches, function(i,item){
 			var option = $('<option />');
 			option.attr('value', item.idx).text(item.name);
-			$("#dialog-addlightdevice #combosubdevice").append(option);
+			$("#dialog-dev-addlightdevice #combosubdevice").append(option);
 		});
     
     if (name!='Unknown') {
-		$( "#dialog-addlightdevice #devicename" ).val(name);
+		$( "#dialog-dev-addlightdevice #devicename" ).val(name);
     }
-    $( "#dialog-addlightdevice" ).dialog( "open" );
+    $( "#dialog-dev-addlightdevice" ).dialog( "open" );
 }
 
 function RemoveDevice(idx)
@@ -403,7 +403,7 @@ function ShowDevices(filter)
 
 function EnableDisableSubDevices(bEnabled)
 {
-	var trow=$("#dialog-addlightdevice #lighttable #subdevice");
+	var trow=$("#dialog-dev-addlightdevice #lighttable #subdevice");
 	if (bEnabled == true) {
 		trow.show();
 	}
@@ -473,7 +473,7 @@ $(document).ready(function() {
               }
         });
 
-        $( "#dialog-addlightdevice" ).dialog({
+        $( "#dialog-dev-addlightdevice" ).dialog({
               autoOpen: false,
               width: 360,
               height: 226,
@@ -482,12 +482,12 @@ $(document).ready(function() {
               buttons: {
                   "Add Device": function() {
                       var bValid = true;
-                      bValid = bValid && checkLength( $("#dialog-addlightdevice #devicename"), 2, 100 );
-                      var bIsSubDevice=$("#dialog-addlightdevice #lighttable #how_2").is(":checked");
+                      bValid = bValid && checkLength( $("#dialog-dev-addlightdevice #devicename"), 2, 100 );
+                      var bIsSubDevice=$("#dialog-dev-addlightdevice #lighttable #how_2").is(":checked");
                       var MainDeviceIdx="";
                       if (bIsSubDevice)
                       {
-							var MainDeviceIdx=$("#dialog-addlightdevice #combosubdevice option:selected").val();
+							var MainDeviceIdx=$("#dialog-dev-addlightdevice #combosubdevice option:selected").val();
 							if (typeof MainDeviceIdx == 'undefined') {
 								bootbox.alert($.i18n('No Main Device Selected!'));
 								return;
@@ -496,7 +496,7 @@ $(document).ready(function() {
                       if ( bValid ) {
                           $( this ).dialog( "close" );
                           $.ajax({
-                             url: "json.htm?type=setused&idx=" + $.devIdx + '&name=' + $("#dialog-addlightdevice #devicename").val() + '&used=true&maindeviceidx=' + MainDeviceIdx,
+                             url: "json.htm?type=setused&idx=" + $.devIdx + '&name=' + $("#dialog-dev-addlightdevice #devicename").val() + '&used=true&maindeviceidx=' + MainDeviceIdx,
                              async: false, 
                              dataType: 'json',
                              success: function(data) {
@@ -514,10 +514,10 @@ $(document).ready(function() {
               }
         });
 				
-	$("#dialog-addlightdevice #lighttable #how_1").click(function() {
+	$("#dialog-dev-addlightdevice #lighttable #how_1").click(function() {
 		EnableDisableSubDevices(false);
 	});
-	$("#dialog-addlightdevice #lighttable #how_2").click(function() {
+	$("#dialog-dev-addlightdevice #lighttable #how_2").click(function() {
 		EnableDisableSubDevices(true);
 	});
 	
@@ -529,7 +529,7 @@ $(document).ready(function() {
             return false;
         }
     });
-	$( "#dialog-addlightdevice" ).keydown(function (event) {
+	$( "#dialog-dev-addlightdevice" ).keydown(function (event) {
         if (event.keyCode == 13) {
 			$(this).siblings('.ui-dialog-buttonpane').find('button:eq(0)').trigger("click");
             return false;
