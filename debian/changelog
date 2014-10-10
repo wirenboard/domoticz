@@ -1,0 +1,5 @@
+domoticz (2.0.1) wheezy; urgency=low
+
+  * Initial debianization
+
+ -- Ivan Shvedunov <ivan4th@gmail.com>  Thu, 09 Oct 2014 23:23:39 +0000

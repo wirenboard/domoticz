@@ -1,0 +1,13 @@
+Source: domoticz
+Section: devel
+Priority: optional
+Standards-Version: 3.9.2
+Maintainer: Ivan Shvedunov <ivan4th@gmail.com>
+Build-Depends: cmake, build-essential, debhelper (>= 9), pkg-config, g++, libjsoncpp-dev, libmosquittopp-dev, libmosquitto-dev, libboost-dev, libsqlite3-dev, libboost-thread-dev, libboost-date-time-dev, libboost-system-dev
+Homepage: http://www.domoticz.com
+
+Package: domoticz
+Architecture: any
+Depends: ${shlibs:Depends}, ${misc:Depends}, libmosquittopp1, libmosquitto1, libsqlite3-0
+Description: Domoticz Home Automation System
+ Domoticz is a lightweight Home Automation System based on RFXCOM / Z-Wave hardware.
