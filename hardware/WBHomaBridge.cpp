@@ -101,10 +101,7 @@ namespace {
         {
             return buf->RAW.packettype == DevType() && buf->RAW.subtype == SubType();
         }
-        virtual MQTTControl* CreateControl(const MQTTAddress& address,
-                                           const std::string& device_id,
-                                           int hardwareID,
-                                           boost::shared_ptr<IMQTTValueWriter> writer) = 0;
+        virtual MQTTControl* CreateControl() = 0;
         virtual std::string DomoticzAddressMapKey(RBUF*) { return std::string(); }
     private:
         std::string m_type;
@@ -116,12 +113,9 @@ namespace {
     {
     public:
         MQTTControlType(const std::string& type): MQTTControlTypeBase(type) {}
-        MQTTControl* CreateControl(const MQTTAddress& address,
-                                   const std::string& device_id,
-                                   int hardwareID,
-                                   boost::shared_ptr<IMQTTValueWriter> writer)
+        MQTTControl* CreateControl()
         {
-            return new T(address, device_id, hardwareID, writer);
+            return new T();
         }
     };
 
@@ -200,14 +194,10 @@ namespace {
                        public boost::enable_shared_from_this<MQTTControl>
     {
     public:
-        MQTTControl(const MQTTAddress& address,
-                    const std::string& device_id,
-                    int hardwareID,
-                    boost::shared_ptr<IMQTTValueWriter> writer)
-            : m_Address(address),
-              m_DeviceID(device_id),
-              m_HardwareID(hardwareID),
-              m_Writer(writer) {}
+        void Setup(const MQTTAddress& address,
+                   const std::string& device_id,
+                   int hardwareID,
+                   boost::shared_ptr<IMQTTValueWriter> writer);
         virtual ~MQTTControl() {}
         std::string DomoticzAddressMapKey() const;
         void EnsureDeviceID();
@@ -237,6 +227,17 @@ namespace {
         boost::shared_ptr<IMQTTValueWriter> m_Writer;
         boost::shared_ptr<MQTTControl> m_Master;
     };
+
+    void MQTTControl::Setup(const MQTTAddress& address,
+                            const std::string& device_id,
+                            int hardwareID,
+                            boost::shared_ptr<IMQTTValueWriter> writer)
+    {
+        m_Address = address;
+        m_DeviceID = device_id;
+        m_HardwareID = hardwareID;
+        m_Writer = writer;
+    }
 
     std::string MQTTControl::DomoticzAddressMapKey() const
     {
@@ -283,11 +284,6 @@ namespace {
 
     class MQTTHexIDControl: public MQTTControl {
     public:
-        MQTTHexIDControl(const MQTTAddress& address,
-                         const std::string& device_id,
-                         int hardwareID,
-                         boost::shared_ptr<IMQTTValueWriter> writer):
-            MQTTControl(address, device_id, hardwareID, writer) {}
         std::string GenerateDeviceID(int hardwareID) const;
     protected:
         virtual int IdDigits() const { return 8; };
@@ -322,11 +318,6 @@ namespace {
                                   public DomoticzType<pTypeTEMP, sTypeTEMP1>
     {
     public:
-        MQTTTemperatureControl(const MQTTAddress& address,
-                               const std::string& device_id,
-                               int hardwareID,
-                               boost::shared_ptr<IMQTTValueWriter> writer):
-            MQTTControl(address, device_id, hardwareID, writer) {}
         void MQTTToDomoticz(const std::string& value, RBUF* buf);
     };
 
@@ -357,11 +348,6 @@ namespace {
                                public DomoticzType<pTypeGeneral, sTypePressure>
     {
     public:
-        MQTTPressureControl(const MQTTAddress& address,
-                            const std::string& device_id,
-                            int hardwareID,
-                            boost::shared_ptr<IMQTTValueWriter> writer):
-            MQTTHexIDControl(address, device_id, hardwareID, writer) {}
         void MQTTToDomoticz(const std::string& value, RBUF* buf);
     };
 
@@ -387,11 +373,6 @@ namespace {
                           public DomoticzType<pTypeLux, sTypeLux>
     {
     public:
-        MQTTLuxControl(const MQTTAddress& address,
-                            const std::string& device_id,
-                            int hardwareID,
-                            boost::shared_ptr<IMQTTValueWriter> writer):
-            MQTTHexIDControl(address, device_id, hardwareID, writer) {}
         void MQTTToDomoticz(const std::string& value, RBUF* buf);
     protected:
         int IdDigits() const { return 7; }
@@ -423,12 +404,6 @@ namespace {
     class MQTTLightControlBase: public MQTTHexIDControl
     {
     public:
-        MQTTLightControlBase(const MQTTAddress& address,
-                             const std::string& device_id,
-                             int hardwareID,
-                             boost::shared_ptr<IMQTTValueWriter> writer):
-            MQTTHexIDControl(address, device_id, hardwareID, writer) {}
-
         void MQTTToDomoticz(const std::string& value, RBUF* buf);
     protected:
         int IdDigits() const { return 6; }
@@ -457,11 +432,6 @@ namespace {
                              public DomoticzType<pTypeLighting5, sTypeWBRelay>
     {
     public:
-        MQTTSwitchControl(const MQTTAddress& address,
-                          const std::string& device_id,
-                          int hardwareID,
-                          boost::shared_ptr<IMQTTValueWriter> writer):
-            MQTTLightControlBase(address, device_id, hardwareID, writer) {}
         int SwitchType() const { return STYPE_OnOff; }
         void MQTTToDomoticz(const std::string& value, RBUF* buf);
         void DomoticzToMQTT(RBUF* buf);
@@ -500,12 +470,6 @@ namespace {
                           public DomoticzType<pTypeLighting5, sTypeWBRGB>
     {
     public:
-        MQTTRGBControl(const MQTTAddress& address,
-                       const std::string& device_id,
-                       int hardwareID,
-                       boost::shared_ptr<IMQTTValueWriter> writer)
-            : MQTTLightControlBase(address, device_id, hardwareID, writer),
-              m_Level(100) {}
         int SwitchType() const { return STYPE_Dimmer; }
         void MQTTToDomoticz(const std::string& value, RBUF* buf);
         void SlaveMQTTToDomoticz(boost::shared_ptr<MQTTControl> slave,
@@ -623,11 +587,6 @@ namespace {
                              public DomoticzType<pTypeLighting5, sTypeWBDimmer>
     {
     public:
-        MQTTDimmerControl(const MQTTAddress& address,
-                          const std::string& device_id,
-                          int hardwareID,
-                          boost::shared_ptr<IMQTTValueWriter> writer)
-            : MQTTLightControlBase(address, device_id, hardwareID, writer) {}
         int SwitchType() const { return STYPE_Dimmer; }
         void MQTTToDomoticz(const std::string& value, RBUF* buf);
         void DomoticzToMQTT(RBUF* buf);
@@ -672,11 +631,6 @@ namespace {
                             public DomoticzType<-1, -1>
     {
     public:
-        MQTTRangeControl(const MQTTAddress& address,
-                         const std::string& device_id,
-                         int hardwareID,
-                         boost::shared_ptr<IMQTTValueWriter> writer):
-            MQTTControl(address, device_id, hardwareID, writer) {}
         bool HasDomoticzControl() const { return false; }
     };
 
@@ -866,11 +820,9 @@ struct WBHomaBridgePrivate
         }
 
         assert(!m_MQTTAddressMap.count(address));
-        boost::shared_ptr<MQTTControl> control(
-            type->CreateControl(address, value.DeviceID, m_Hardware->m_HwdID, m_Handler));
-
+        boost::shared_ptr<MQTTControl> control(type->CreateControl());
+        control->Setup(address, value.DeviceID, m_Hardware->m_HwdID, m_Handler);
         m_MQTTAddressMap[address] = control;
-
         MaybeLinkControl(control);
 
         return control;
