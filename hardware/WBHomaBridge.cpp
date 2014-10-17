@@ -2,6 +2,7 @@
 #include <list>
 #include <ctime>
 #include <vector>
+#include <memory>
 #include <boost/algorithm/string/split.hpp>
 #include <boost/algorithm/string.hpp>
 #include <boost/enable_shared_from_this.hpp>
@@ -157,6 +158,44 @@ namespace {
         }
     };
 
+    template<typename T>
+    class PressureControlType: public MQTTControlType<T>
+    {
+    public:
+        PressureControlType(const std::string& type): MQTTControlType<T>(type) {}
+        std::string DomoticzAddressMapKey(RBUF* buf)
+        {
+            _tGeneralDevice* dev = reinterpret_cast<_tGeneralDevice*>(buf);
+            std::stringstream id;
+            id << std::uppercase << std::hex << std::setw(8) << std::setfill('0') <<
+                dev->intval1;
+
+            std::stringstream s;
+            s << id.str() << "/" << (int)dev->type << "/" << (int)dev->subtype;
+            return s.str();
+        }
+    };
+
+    template<typename T>
+    class LuxControlType: public MQTTControlType<T>
+    {
+    public:
+        LuxControlType(const std::string& type): MQTTControlType<T>(type) {}
+        std::string DomoticzAddressMapKey(RBUF* buf)
+        {
+            _tLightMeter* dev = reinterpret_cast<_tLightMeter*>(buf);
+            std::stringstream id;
+            id << std::uppercase << std::hex << 
+                (int)dev->id1 <<
+                std::setfill('0') << std::setw(2) <<
+                (int)dev->id2 << (int)dev->id3 << (int)dev->id4;
+
+            std::stringstream s;
+            s << id.str() << "/" << (int)dev->type << "/" << (int)dev->subtype;
+            return s.str();
+        }
+    };
+
     class MQTTControl: virtual public IDomoticzType,
                        public boost::enable_shared_from_this<MQTTControl>
     {
@@ -242,6 +281,43 @@ namespace {
         return shared_from_this();
     }
 
+    class MQTTHexIDControl: public MQTTControl {
+    public:
+        MQTTHexIDControl(const MQTTAddress& address,
+                         const std::string& device_id,
+                         int hardwareID,
+                         boost::shared_ptr<IMQTTValueWriter> writer):
+            MQTTControl(address, device_id, hardwareID, writer) {}
+        std::string GenerateDeviceID(int hardwareID) const;
+    protected:
+        virtual int IdDigits() const { return 8; };
+    };
+
+    std::string MQTTHexIDControl::GenerateDeviceID(int hardwareID) const
+    {
+        std::vector< std::vector<std::string> > result =
+            m_sql.query("SELECT MAX(DeviceID) FROM DeviceStatus "
+                        "WHERE HardwareID = ? AND Type = ? AND SubType = ?",
+                        SQLParamList() << hardwareID << DevType() << SubType());
+        int id = 1;
+        std::stringstream s;
+        if (!result.empty()) {
+            s << std::hex << result[0][0];
+            s >> id;
+            ++id;
+        }
+
+        s.clear();
+        s.str("");
+        s << std::uppercase << std::hex << std::setw(IdDigits()) << std::setfill('0') << id;
+        _log.Log(LOG_NORM,
+                 "GenerateDeviceID: %s for %s (IdDigits() %d)",
+                 s.str().c_str(),
+                 Address().Topic().c_str(),
+                 IdDigits());
+        return s.str();
+    }
+
     class MQTTTemperatureControl: public MQTTControl,
                                   public DomoticzType<pTypeTEMP, sTypeTEMP1>
     {
@@ -277,38 +353,86 @@ namespace {
         buf->TEMP.temperaturel = vInt & 255;
     }
 
-    class MQTTLightControlBase: public MQTTControl
+    class MQTTPressureControl: public MQTTHexIDControl,
+                               public DomoticzType<pTypeGeneral, sTypePressure>
+    {
+    public:
+        MQTTPressureControl(const MQTTAddress& address,
+                            const std::string& device_id,
+                            int hardwareID,
+                            boost::shared_ptr<IMQTTValueWriter> writer):
+            MQTTHexIDControl(address, device_id, hardwareID, writer) {}
+        void MQTTToDomoticz(const std::string& value, RBUF* buf);
+    };
+
+    void MQTTPressureControl::MQTTToDomoticz(const std::string& value, RBUF* buf)
+    {
+        std::stringstream s(DeviceID());
+        int id;
+        s << std::hex;
+        s >> id;
+
+        std::stringstream s1(value);
+        float v;
+        s1 >> v;
+
+        _tGeneralDevice *dev = new (buf) _tGeneralDevice();
+        dev->subtype = SubType();
+        dev->id = 0; // not actually used for sTypePressure
+        dev->floatval1 = v * 0.00133322368; // mmhg -> bar
+        dev->intval1 = id;
+    }
+
+    class MQTTLuxControl: public MQTTHexIDControl,
+                          public DomoticzType<pTypeLux, sTypeLux>
+    {
+    public:
+        MQTTLuxControl(const MQTTAddress& address,
+                            const std::string& device_id,
+                            int hardwareID,
+                            boost::shared_ptr<IMQTTValueWriter> writer):
+            MQTTHexIDControl(address, device_id, hardwareID, writer) {}
+        void MQTTToDomoticz(const std::string& value, RBUF* buf);
+    protected:
+        int IdDigits() const { return 7; }
+    };
+
+    void MQTTLuxControl::MQTTToDomoticz(const std::string& value, RBUF* buf)
+    {
+        std::stringstream s(DeviceID());
+        int id;
+        s << std::hex;
+        s >> id;
+
+        std::stringstream s1(value);
+        float v;
+        s1 >> v;
+
+        _tLightMeter *dev = new (buf) _tLightMeter();
+        dev->id1 = id >> 24;
+        dev->id2 = (id >> 16) & 255;
+        dev->id3 = (id >> 8) & 255;
+        dev->id4 = id & 255;
+        dev->dunit = (BYTE)id;
+        dev->fLux = v;
+
+        assert(buf->RAW.packettype == pTypeLux);
+        assert(buf->RAW.subtype == sTypeLux);
+    }
+
+    class MQTTLightControlBase: public MQTTHexIDControl
     {
     public:
         MQTTLightControlBase(const MQTTAddress& address,
                              const std::string& device_id,
                              int hardwareID,
                              boost::shared_ptr<IMQTTValueWriter> writer):
-            MQTTControl(address, device_id, hardwareID, writer) {}
+            MQTTHexIDControl(address, device_id, hardwareID, writer) {}
 
-        std::string GenerateDeviceID(int hardwareID) const;
         void MQTTToDomoticz(const std::string& value, RBUF* buf);
+    protected:
+        int IdDigits() const { return 6; }
     };
-
-    std::string MQTTLightControlBase::GenerateDeviceID(int hardwareID) const
-    {
-        std::vector< std::vector<std::string> > result =
-            m_sql.query("SELECT MAX(DeviceID) FROM DeviceStatus "
-                        "WHERE HardwareID = ? AND Type = ? AND SubType = ?",
-                        SQLParamList() << hardwareID << DevType() << SubType());
-        int id = 1;
-        std::stringstream s;
-        if (!result.empty()) {
-            s << std::hex << result[0][0];
-            s >> id;
-            ++id;
-        }
-
-        s.clear();
-        s.str("");
-        s << std::uppercase << std::hex << std::setw(6) << std::setfill('0') << id;
-        return s.str();
-    }
 
     void MQTTLightControlBase::MQTTToDomoticz(const std::string&, RBUF* buf)
     {
@@ -558,6 +682,8 @@ namespace {
 
     MQTTControlTypeBase* control_types[] = {
         new TemperatureControlType<MQTTTemperatureControl>("temperature"),
+        new PressureControlType<MQTTPressureControl>("pressure"),
+        new LuxControlType<MQTTLuxControl>("lux"),
         new Lighting5ControlType<MQTTSwitchControl>("switch"),
         new Lighting5ControlType<MQTTRGBControl>("rgb"),
         new Lighting5ControlType<MQTTDimmerControl>("dimmer"),
@@ -1005,13 +1131,10 @@ void WBHomaBridge::Do_Work()
 	_log.Log(LOG_STATUS,"WBHomaBridge: Stopped...");
 }
 
-// TBD: uninit lib
 // TBD: make keepalive configurable
 // TBD: make mqtt loop timeout a constant
 // TBD: obtain version from git repository, too (during build)
 // TBD: make sure notifications work
-// TBD: make mosquitto an optional dependency
-//      (don't build WBHomaBridge if it's not found)
 // TBD: handle deletion of controls
 //      (when type becomes empty or unrecognized, remote DeviceStatus entry)
 // TBD: check packet length in DomoticzToMQTT methods

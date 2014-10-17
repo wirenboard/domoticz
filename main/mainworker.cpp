@@ -7446,7 +7446,7 @@ unsigned long long MainWorker::decode_Lux(const CDomoticzHardwareBase *pHardware
 		case sTypeLux:
 			WriteMessage("subtype       = Lux");
 
-			sprintf(szTmp,"Lux = %.1f W", pMeter->fLux);
+			sprintf(szTmp,"Lux = %.1f lx", pMeter->fLux);
 			WriteMessage(szTmp);
 			break;
 		default:
