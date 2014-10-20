@@ -2842,9 +2842,9 @@ unsigned long long MainWorker::decode_TempHumBaro(const CDomoticzHardwareBase *p
 unsigned long long MainWorker::decode_TempBaro(const CDomoticzHardwareBase *pHardware, const int HwdID, const tRBUF *pResponse)
 {
 	char szTmp[100];
-	unsigned char devType=pTypeTEMP_BARO;
-	unsigned char subType=sTypeBMP085;
 	_tTempBaro *pTempBaro=(_tTempBaro*)pResponse;
+	unsigned char devType=pTempBaro->type;
+	unsigned char subType=pTempBaro->subtype;
 
 	sprintf(szTmp,"%d",pTempBaro->id1);
 	std::string ID=szTmp;
@@ -2887,6 +2887,10 @@ unsigned long long MainWorker::decode_TempBaro(const CDomoticzHardwareBase *pHar
 		case sTypeBMP085:
 			WriteMessage("subtype       = BMP085 I2C");
 			sprintf(szTmp,"                channel %d", pTempBaro->id1);
+			WriteMessage(szTmp);
+			break;
+		case sTypeWBTempBaro:
+			WriteMessage("subtype       = WB Temp Baro");
 			WriteMessage(szTmp);
 			break;
 		default:

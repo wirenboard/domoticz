@@ -179,7 +179,7 @@ namespace {
         {
             _tLightMeter* dev = reinterpret_cast<_tLightMeter*>(buf);
             std::stringstream id;
-            id << std::uppercase << std::hex << 
+            id << std::uppercase << std::hex <<
                 (int)dev->id1 <<
                 std::setfill('0') << std::setw(2) <<
                 (int)dev->id2 << (int)dev->id3 << (int)dev->id4;
@@ -194,45 +194,56 @@ namespace {
                        public boost::enable_shared_from_this<MQTTControl>
     {
     public:
-        void Setup(const MQTTAddress& address,
+        void Setup(const std::string& type,
+                   const MQTTAddress& address,
                    const std::string& device_id,
                    int hardwareID,
                    boost::shared_ptr<IMQTTValueWriter> writer);
         virtual ~MQTTControl() {}
+        std::string Type() const { return m_Type; }
         std::string DomoticzAddressMapKey() const;
         void EnsureDeviceID();
+        void DeleteFromDatabase();
         const std::string& DeviceID() const { return m_DeviceID; }
         const MQTTAddress& Address() const { return m_Address; }
         virtual int SwitchType() const { return -1; }
         virtual int Priority() const { return 10; }
-        virtual void MQTTToDomoticz(const std::string&, RBUF*) {}
-        virtual void SlaveMQTTToDomoticz(boost::shared_ptr<MQTTControl>,
+        virtual bool MQTTToDomoticz(const std::string&, RBUF*) { return false; }
+        virtual bool SlaveMQTTToDomoticz(boost::shared_ptr<MQTTControl>,
                                          const std::string&,
-                                         RBUF*) {}
+                                         RBUF*) { return false; }
         virtual void DomoticzToMQTT(RBUF*) {}
-        virtual void AddSlave(boost::shared_ptr<MQTTControl>) {}
+        virtual boost::shared_ptr<MQTTControl> AddSlave(boost::shared_ptr<MQTTControl>)
+        {
+            return boost::shared_ptr<MQTTControl>();
+        }
         virtual bool HasDomoticzControl() const { return true; }
         void SetMaster(boost::shared_ptr<MQTTControl> master) { m_Master = master; }
         boost::shared_ptr<MQTTControl> Master() const { return m_Master; }
         void PublishValue(const std::string& value);
         boost::shared_ptr<MQTTControl> AcceptValue(const std::string& payload, RBUF* buf);
+        std::string LastMQTTValue() const { return m_LastMQTTValue; }
 
     protected:
         virtual std::string GenerateDeviceID(int hardwareID) const;
 
     private:
+        std::string m_Type;
         MQTTAddress m_Address;
         std::string m_DeviceID;
         int m_HardwareID;
         boost::shared_ptr<IMQTTValueWriter> m_Writer;
         boost::shared_ptr<MQTTControl> m_Master;
+        std::string m_LastMQTTValue;
     };
 
-    void MQTTControl::Setup(const MQTTAddress& address,
+    void MQTTControl::Setup(const std::string& type,
+                            const MQTTAddress& address,
                             const std::string& device_id,
                             int hardwareID,
                             boost::shared_ptr<IMQTTValueWriter> writer)
     {
+        m_Type = type;
         m_Address = address;
         m_DeviceID = device_id;
         m_HardwareID = hardwareID;
@@ -254,6 +265,18 @@ namespace {
         m_Writer->StoreDeviceID(m_Address, m_DeviceID);
     }
 
+    void MQTTControl::DeleteFromDatabase()
+    {
+        if (m_DeviceID.empty())
+            return;
+
+        m_sql.execute("DELETE FROM DeviceStatus "
+                      "WHERE HardwareID = ? AND DeviceID = ? AND "
+                      "Type = ? AND SubType = ?",
+                      SQLParamList() << m_HardwareID <<
+                      m_DeviceID << DevType() << SubType());
+    }
+
     std::string MQTTControl::GenerateDeviceID(int hardwareID) const
     {
         std::vector< std::vector<std::string> > result =
@@ -270,16 +293,17 @@ namespace {
 
     boost::shared_ptr<MQTTControl> MQTTControl::AcceptValue(const std::string& payload, RBUF* buf)
     {
+        m_LastMQTTValue = payload;
         if (Master()) {
             Master()->EnsureDeviceID();
-            Master()->SlaveMQTTToDomoticz(shared_from_this(), payload, buf);
-            return Master();
+            if (Master()->SlaveMQTTToDomoticz(shared_from_this(), payload, buf))
+                return Master();
         } else if (HasDomoticzControl()) {
             EnsureDeviceID();
-            MQTTToDomoticz(payload, buf);
-        } else
-            return boost::shared_ptr<MQTTControl>();
-        return shared_from_this();
+            if (MQTTToDomoticz(payload, buf))
+                return shared_from_this();
+        }
+        return boost::shared_ptr<MQTTControl>();
     }
 
     class MQTTHexIDControl: public MQTTControl {
@@ -314,14 +338,110 @@ namespace {
         return s.str();
     }
 
+    class MQTTPressureControl: public MQTTHexIDControl,
+                               public DomoticzType<pTypeGeneral, sTypePressure>
+    {
+    public:
+        bool MQTTToDomoticz(const std::string& value, RBUF* buf);
+    };
+
+    bool MQTTPressureControl::MQTTToDomoticz(const std::string& value, RBUF* buf)
+    {
+        std::stringstream s(DeviceID());
+        int id;
+        s << std::hex;
+        s >> id;
+
+        std::stringstream s1(value);
+        float v;
+        s1 >> v;
+
+        _tGeneralDevice *dev = new (buf) _tGeneralDevice();
+        dev->subtype = SubType();
+        dev->id = 0; // not actually used for sTypePressure
+        dev->floatval1 = v * 0.00133322368; // mm Hg -> bar
+        dev->intval1 = id;
+
+        return true;
+    }
+
+    class MQTTTempBaroControl: public MQTTControl,
+                               public DomoticzType<pTypeTEMP_BARO, sTypeWBTempBaro>
+    {
+    public:
+        MQTTTempBaroControl(): m_TempValue(-1), m_BaroValue(-1) {}
+        bool MQTTToDomoticz(const std::string& value, RBUF* buf);
+        bool SlaveMQTTToDomoticz(boost::shared_ptr<MQTTControl> slave,
+                                 const std::string& value,
+                                 RBUF* buf);
+        boost::shared_ptr<MQTTControl> AddSlave(boost::shared_ptr<MQTTControl> slave);
+    private:
+        bool FillRBUFIfReady(RBUF* buf);
+        float m_TempValue;
+        float m_BaroValue;
+    };
+
+    bool MQTTTempBaroControl::MQTTToDomoticz(const std::string& value, RBUF* buf)
+    {
+        std::stringstream s(value);
+        s >> m_TempValue;
+        return FillRBUFIfReady(buf);
+    }
+
+    bool MQTTTempBaroControl::SlaveMQTTToDomoticz(boost::shared_ptr<MQTTControl>,
+                                                  const std::string& value,
+                                                  RBUF* buf)
+    {
+        std::stringstream s(value);
+        s >> m_BaroValue;
+        return FillRBUFIfReady(buf);
+    }
+
+    boost::shared_ptr<MQTTControl> MQTTTempBaroControl::AddSlave(boost::shared_ptr<MQTTControl> slave)
+    {
+        slave->SetMaster(shared_from_this());
+        if (!slave->LastMQTTValue().empty()) {
+            std::stringstream s(slave->LastMQTTValue());
+            s >> m_BaroValue;
+        }
+
+        // no need to replace MQTTTempBaroControl
+        return boost::shared_ptr<MQTTControl>();
+    }
+
+    bool MQTTTempBaroControl::FillRBUFIfReady(RBUF* buf)
+    {
+        std::stringstream s(DeviceID());
+        int id;
+        s >> id;
+
+        if (id > 255) {
+            _log.Log(LOG_ERROR, "WBHomaBridge: cannot use id > 255 for temp+baro device");
+            return false;
+        }
+
+        if (m_TempValue < 0 || m_BaroValue < 0)
+            return false;
+
+        _tTempBaro *dev = new (buf) _tTempBaro();
+        dev->subtype = SubType();
+        dev->id1 = (BYTE)id;
+        dev->temp = m_TempValue;
+        dev->baro = m_BaroValue * 1.3332239; // mm Hg -> hPa
+        dev->altitude = 0;
+        dev->forecast = baroForecastNoInfo;
+        return true;
+    }
+
     class MQTTTemperatureControl: public MQTTControl,
                                   public DomoticzType<pTypeTEMP, sTypeTEMP1>
     {
     public:
-        void MQTTToDomoticz(const std::string& value, RBUF* buf);
+        bool MQTTToDomoticz(const std::string& value, RBUF* buf);
+        boost::shared_ptr<MQTTControl> AddSlave(boost::shared_ptr<MQTTControl> slave);
     };
 
-    void MQTTTemperatureControl::MQTTToDomoticz(const std::string& value, RBUF* buf)
+    bool MQTTTemperatureControl::MQTTToDomoticz(const std::string& value, RBUF* buf)
     {
         std::stringstream s(DeviceID());
         int id;
@@ -342,43 +462,30 @@ namespace {
         int vInt = round(abs(v * 10.0f));
         buf->TEMP.temperatureh = vInt >> 8;
         buf->TEMP.temperaturel = vInt & 255;
+
+        return true;
     }
 
-    class MQTTPressureControl: public MQTTHexIDControl,
-                               public DomoticzType<pTypeGeneral, sTypePressure>
+    boost::shared_ptr<MQTTControl> MQTTTemperatureControl::AddSlave(boost::shared_ptr<MQTTControl> slave)
     {
-    public:
-        void MQTTToDomoticz(const std::string& value, RBUF* buf);
-    };
+        // only MQTTPressureControl can be accepted as a slave
+        assert(dynamic_cast<MQTTPressureControl*>(slave.get()));
 
-    void MQTTPressureControl::MQTTToDomoticz(const std::string& value, RBUF* buf)
-    {
-        std::stringstream s(DeviceID());
-        int id;
-        s << std::hex;
-        s >> id;
-
-        std::stringstream s1(value);
-        float v;
-        s1 >> v;
-
-        _tGeneralDevice *dev = new (buf) _tGeneralDevice();
-        dev->subtype = SubType();
-        dev->id = 0; // not actually used for sTypePressure
-        dev->floatval1 = v * 0.00133322368; // mmhg -> bar
-        dev->intval1 = id;
+        // pressure control was added for the same SystemID,
+        // replace this control with MQTTTempBaroControl
+        return boost::shared_ptr<MQTTControl>(new MQTTTempBaroControl());
     }
 
     class MQTTLuxControl: public MQTTHexIDControl,
                           public DomoticzType<pTypeLux, sTypeLux>
     {
     public:
-        void MQTTToDomoticz(const std::string& value, RBUF* buf);
+        bool MQTTToDomoticz(const std::string& value, RBUF* buf);
     protected:
         int IdDigits() const { return 7; }
     };
 
-    void MQTTLuxControl::MQTTToDomoticz(const std::string& value, RBUF* buf)
+    bool MQTTLuxControl::MQTTToDomoticz(const std::string& value, RBUF* buf)
     {
         std::stringstream s(DeviceID());
         int id;
@@ -399,17 +506,19 @@ namespace {
 
         assert(buf->RAW.packettype == pTypeLux);
         assert(buf->RAW.subtype == sTypeLux);
+
+        return true;
     }
 
     class MQTTLightControlBase: public MQTTHexIDControl
     {
     public:
-        void MQTTToDomoticz(const std::string& value, RBUF* buf);
+        bool MQTTToDomoticz(const std::string& value, RBUF* buf);
     protected:
         int IdDigits() const { return 6; }
     };
 
-    void MQTTLightControlBase::MQTTToDomoticz(const std::string&, RBUF* buf)
+    bool MQTTLightControlBase::MQTTToDomoticz(const std::string&, RBUF* buf)
     {
         int id;
         std::stringstream s;
@@ -426,6 +535,8 @@ namespace {
 
         buf->LIGHTING5.rssi = 7;
         buf->LIGHTING5.unitcode = (BYTE)id;
+
+        return true;
     }
 
     class MQTTSwitchControl: public MQTTLightControlBase,
@@ -433,14 +544,15 @@ namespace {
     {
     public:
         int SwitchType() const { return STYPE_OnOff; }
-        void MQTTToDomoticz(const std::string& value, RBUF* buf);
+        bool MQTTToDomoticz(const std::string& value, RBUF* buf);
         void DomoticzToMQTT(RBUF* buf);
     };
 
-    void MQTTSwitchControl::MQTTToDomoticz(const std::string& value, RBUF* buf)
+    bool MQTTSwitchControl::MQTTToDomoticz(const std::string& value, RBUF* buf)
     {
         MQTTLightControlBase::MQTTToDomoticz(value, buf);
         buf->LIGHTING5.cmnd = (value == "1" ? light5_sOn : light5_sOff);
+        return true;
     }
 
     void MQTTSwitchControl::DomoticzToMQTT(RBUF* buf)
@@ -471,33 +583,31 @@ namespace {
     {
     public:
         int SwitchType() const { return STYPE_Dimmer; }
-        void MQTTToDomoticz(const std::string& value, RBUF* buf);
-        void SlaveMQTTToDomoticz(boost::shared_ptr<MQTTControl> slave,
+        bool MQTTToDomoticz(const std::string& value, RBUF* buf);
+        bool SlaveMQTTToDomoticz(boost::shared_ptr<MQTTControl> slave,
                                  const std::string& value,
                                  RBUF* buf);
         void DomoticzToMQTT(RBUF* buf);
-        void AddSlave(boost::shared_ptr<MQTTControl> slave)
-        {
-            m_Slave = slave;
-            m_Slave->SetMaster(shared_from_this());
-        }
+        boost::shared_ptr<MQTTControl> AddSlave(boost::shared_ptr<MQTTControl> slave);
 
     private:
         std::string GetRGB(int hue) const;
         boost::shared_ptr<MQTTControl> m_Slave;
         int m_Level;
     };
-    
-    void MQTTRGBControl::MQTTToDomoticz(const std::string& value, RBUF* buf)
+
+    bool MQTTRGBControl::MQTTToDomoticz(const std::string& value, RBUF* buf)
     {
         MQTTLightControlBase::MQTTToDomoticz(value, buf);
         _log.Log(LOG_NORM, "MQTTRGBControl::MQTTToDomoticz(): '%s': value '%s' (TBD)",
                  Address().Topic().c_str(), value.c_str());
         buf->LIGHTING5.cmnd = m_Level ? light5_sSetLevel : light5_sRGBoff;
         buf->LIGHTING5.level = m_Level;
+
+        return true;
     }
 
-    void MQTTRGBControl::SlaveMQTTToDomoticz(boost::shared_ptr<MQTTControl> slave,
+    bool MQTTRGBControl::SlaveMQTTToDomoticz(boost::shared_ptr<MQTTControl> slave,
                                              const std::string& value,
                                              RBUF* buf)
     {
@@ -509,6 +619,8 @@ namespace {
         s >> m_Level;
         buf->LIGHTING5.cmnd = m_Level ? light5_sSetLevel : light5_sRGBoff;
         buf->LIGHTING5.level = m_Level;
+
+        return true;
     }
 
     void MQTTRGBControl::DomoticzToMQTT(RBUF* buf)
@@ -541,7 +653,14 @@ namespace {
             PublishValue(GetRGB(hue));
         }
     }
-    
+
+    boost::shared_ptr<MQTTControl> MQTTRGBControl::AddSlave(boost::shared_ptr<MQTTControl> slave)
+    {
+        m_Slave = slave;
+        m_Slave->SetMaster(shared_from_this());
+        return boost::shared_ptr<MQTTControl>();
+    }
+
     std::string MQTTRGBControl::GetRGB(int hue) const
     {
         int x = round(255. * (double)(hue % 60) / 60.);
@@ -588,11 +707,11 @@ namespace {
     {
     public:
         int SwitchType() const { return STYPE_Dimmer; }
-        void MQTTToDomoticz(const std::string& value, RBUF* buf);
+        bool MQTTToDomoticz(const std::string& value, RBUF* buf);
         void DomoticzToMQTT(RBUF* buf);
     };
 
-    void MQTTDimmerControl::MQTTToDomoticz(const std::string& value, RBUF* buf)
+    bool MQTTDimmerControl::MQTTToDomoticz(const std::string& value, RBUF* buf)
     {
         MQTTLightControlBase::MQTTToDomoticz(value, buf);
         _log.Log(LOG_NORM, "MQTTRGBControl::MQTTToDomoticz(): '%s': value '%s'",
@@ -604,6 +723,8 @@ namespace {
         level = (int)round((double)level * 100. / 255.);
         buf->LIGHTING5.cmnd = level ? light5_sSetLevel : light5_sRGBoff;
         buf->LIGHTING5.level = level;
+
+        return true;
     }
 
     void MQTTDimmerControl::DomoticzToMQTT(RBUF* buf)
@@ -647,14 +768,15 @@ namespace {
 
     struct MQTTControlLink
     {
-        MQTTControlLink(const std::string& master_name, const std::string& slave_name)
-            : MasterName(master_name), SlaveName(slave_name) {}
-        std::string MasterName;
-        std::string SlaveName;
+        MQTTControlLink(const std::string& master, const std::string& slave)
+            : Master(master), Slave(slave) {}
+        std::string Master;
+        std::string Slave;
     };
 
     MQTTControlLink* control_links[] = {
         new MQTTControlLink("RGB", "RGB_All"),
+        new MQTTControlLink("(((temperature)))", "(((pressure)))"),
         0
     };
 
@@ -791,6 +913,7 @@ namespace {
     typedef std::map<MQTTAddress, MQTTTemporaryValue> TemporaryValueMap;
     typedef std::map<MQTTAddress, boost::shared_ptr<MQTTControl> > MQTTAddressMap;
     typedef std::map<std::string, boost::shared_ptr<MQTTControl> > DomoticzAddressMap;
+    typedef std::map<std::string, boost::shared_ptr<MQTTControl> > PendingLinkMap;
 }
 
 struct WBHomaBridgePrivate
@@ -805,6 +928,7 @@ struct WBHomaBridgePrivate
     TemporaryValueMap m_TemporaryValueMap;
     MQTTAddressMap m_MQTTAddressMap;
     DomoticzAddressMap m_DomoticzAddressMap;
+    PendingLinkMap m_PendingLinkMap;
     static bool s_LibInitialized;
 
     boost::shared_ptr<MQTTControl> AddControl(
@@ -821,41 +945,54 @@ struct WBHomaBridgePrivate
 
         assert(!m_MQTTAddressMap.count(address));
         boost::shared_ptr<MQTTControl> control(type->CreateControl());
-        control->Setup(address, value.DeviceID, m_Hardware->m_HwdID, m_Handler);
+        control->Setup(value.Type, address, value.DeviceID, m_Hardware->m_HwdID, m_Handler);
         m_MQTTAddressMap[address] = control;
-        MaybeLinkControl(control);
-
-        return control;
+        return MaybeLinkControl(control);
     }
 
-    void MaybeLinkControl(boost::shared_ptr<MQTTControl> control)
+    boost::shared_ptr<MQTTControl> MaybeLinkControl(boost::shared_ptr<MQTTControl> control)
     {
-        boost::shared_ptr<MQTTControl> master, slave;   
-        std::string name = control->Address().DeviceControlID;
-        std::string other_name;
+        boost::shared_ptr<MQTTControl> master, slave;
+        std::string name = control->Address().DeviceControlID,
+                    prefix = control->Address().SystemID + "/",
+                    type_ref = "(((" + control->Type() + ")))",
+                    this_key, other_key;
         for (MQTTControlLink** l = control_links; *l; ++l) {
-            if ((*l)->MasterName == name) {
+            if ((*l)->Master == name) {
                 master = control;
-                other_name = (*l)->SlaveName;
+                this_key = prefix + name;
+                other_key = prefix + (*l)->Slave;
                 break;
-            } else if ((*l)->SlaveName == name) {
+            } else if ((*l)->Master == type_ref) {
+                master = control;
+                this_key = prefix + type_ref;
+                other_key = prefix + (*l)->Slave;
+                break;
+            } else if ((*l)->Slave == name) {
                 slave = control;
-                other_name = (*l)->MasterName;
+                this_key = prefix + name;
+                other_key = prefix + (*l)->Master;
+                break;
+            } else if ((*l)->Slave == type_ref) {
+                slave = control;
+                this_key = prefix + type_ref;
+                other_key = prefix + (*l)->Master;
                 break;
             }
         }
 
-        if (other_name.empty())
-            return;
+        if (other_key.empty())
+            return control;
 
-        MQTTAddress other_address(control->Address().SystemID, other_name);
-        MQTTAddressMap::iterator it = m_MQTTAddressMap.find(other_address);
-        if (it == m_MQTTAddressMap.end()) {
+        PendingLinkMap::iterator it = m_PendingLinkMap.find(other_key);
+        if (it == m_PendingLinkMap.end()) {
             _log.Log(LOG_NORM,
-                     "WBHomaBridge: '%s' is a pending %s",
+                     "WBHomaBridge: '%s' is a pending %s with key '%s'",
                      (master ? master : slave)->Address().Topic().c_str(),
-                     (master ? "master" : "slave"));
-            return;
+                     (master ? "master" : "slave"),
+                     other_key.c_str());
+            m_PendingLinkMap[this_key] = control;
+            return control;
         }
 
         assert(master || slave);
@@ -864,17 +1001,44 @@ struct WBHomaBridgePrivate
         else
             master = it->second;
 
+        m_PendingLinkMap.erase(it);
+
         _log.Log(LOG_NORM,
                  "WBHomaBridge: adding '%s' as a slave for '%s'",
                  slave->Address().Topic().c_str(),
                  master->Address().Topic().c_str());
 
-        master->AddSlave(slave);
+        boost::shared_ptr<MQTTControl> master_replacement = master->AddSlave(slave);
+
         // Slave controls have direct MQTT mapping but don't have
         // any direct Domoticz mapping. From Domoticz point of view,
         // they're part of their master control.
-        if (!slave->HasDomoticzControl() && !slave->DeviceID().empty())
+        if (slave->HasDomoticzControl() && !slave->DeviceID().empty()) {
             m_DomoticzAddressMap.erase(slave->DomoticzAddressMapKey());
+            slave->DeleteFromDatabase();
+        }
+
+        if (master_replacement) {
+            _log.Log(LOG_NORM,
+                     "WBHomaBridge: replacing master control for '%s'",
+                     master->Address().Topic().c_str());
+            if (master->HasDomoticzControl() && !master->DeviceID().empty()) {
+                m_DomoticzAddressMap.erase(slave->DomoticzAddressMapKey());
+                m_MQTTAddressMap.erase(master->Address());
+                master->DeleteFromDatabase();
+            }
+            master_replacement->Setup(master->Type(), master->Address(), master->DeviceID(),
+                                      m_Hardware->m_HwdID, m_Handler);
+            m_MQTTAddressMap[master->Address()] = master_replacement;
+
+            if (master_replacement->AddSlave(slave))
+                _log.Log(LOG_ERROR, "WBHomaBridge: AddSlave() returned non-null value "
+                         "for the replacement control");
+
+            return master == control ? master_replacement : control;
+        }
+
+        return control;
     }
 
     void SendValueToDomoticz(boost::shared_ptr<MQTTControl> control,
@@ -1091,3 +1255,5 @@ void WBHomaBridge::Do_Work()
 //      (when type becomes empty or unrecognized, remote DeviceStatus entry)
 // TBD: check packet length in DomoticzToMQTT methods
 // TBD: don't use hardcoded min/max values for dimmer/rgb_dimmer types
+// TBD: test without 'ready' handling (must make sure linking works properly);
+//      try reordering devices in the simulator

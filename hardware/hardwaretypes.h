@@ -43,6 +43,7 @@
 
 #define pTypeTEMP_BARO	0xF7
 #define sTypeBMP085		0x01
+#define sTypeWBTempBaro 0x02
 
 #define pTypeUsage		0xF8
 #define sTypeElectric	0x01

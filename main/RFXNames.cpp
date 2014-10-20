@@ -543,6 +543,7 @@ const char *RFX_Type_SubType_Desc(const unsigned char dType, const unsigned char
 		{ pTypeUsage, sTypeElectric, "Electric" },
 
 		{ pTypeTEMP_BARO, sTypeBMP085, "BMP085 I2C" },
+		{ pTypeTEMP_BARO, sTypeWBTempBaro, "WB Temp Baro" },
 		
 		{ pTypeLux, sTypeLux, "Lux" },
 
@@ -752,6 +753,7 @@ const char *RFX_Type_SubType_Values(const unsigned char dType, const unsigned ch
 		{ pTypeUsage, sTypeElectric, "Usage" },
 
 		{ pTypeTEMP_BARO, sTypeBMP085, "Temperature,Barometer,Forecast,Altitude" },
+		{ pTypeTEMP_BARO, sTypeWBTempBaro, "Temperature,Barometer" },
 		
 		{ pTypeLux, sTypeLux, "Lux" },
 
