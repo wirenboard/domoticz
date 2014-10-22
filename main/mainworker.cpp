@@ -116,6 +116,10 @@ MainWorker::MainWorker()
 
 MainWorker::~MainWorker()
 {
+    // FIXME: the logger was probably already
+    // destroyed, recreate it in otder to avoid
+    // crash.
+    new (&_log) CLogger; 
 	Stop();
 }
 
