@@ -1,0 +1,6 @@
+set daemon 10
+
+check process domoticz with pidfile /var/run/domoticz.pid
+      start program = "/etc/init.d/domoticz.sh start"
+      stop  program = "/etc/init.d/domoticz.sh stop"
+      if failed port 8080 protocol http for 3 cycles then restart

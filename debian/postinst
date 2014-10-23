@@ -1,0 +1,5 @@
+#!/bin/sh
+
+addgroup --system domoticz
+adduser --system --ingroup domoticz --home /var/lib/domoticz domoticz
+service monit reload

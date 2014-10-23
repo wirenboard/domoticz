@@ -14,11 +14,12 @@
 PATH=/sbin:/bin:/usr/sbin:/usr/bin:/usr/local/bin
 DESC="Domoticz Home Automation System"
 NAME=domoticz
-USERNAME=pi
-DAEMON=/home/$USERNAME/domoticz/$NAME
+USERNAME=domoticz
+DAEMON=/usr/share/domoticz/$NAME
 #DAEMON_ARGS="-daemon -www 8080 -log /tmp/domoticz.txt"
 #DAEMON_ARGS="-daemon -www 8080 -syslog"
-DAEMON_ARGS="-daemon -www 8080"
+DBASE=/var/lib/domoticz/domoticz.db
+DAEMON_ARGS="-daemon -www 8080 -dbase $DBASE"
 PIDFILE=/var/run/$NAME.pid
 SCRIPTNAME=/etc/init.d/$NAME
 
