@@ -1098,7 +1098,8 @@ struct WBHomaBridgePrivate
         m_DomoticzAddressMap[control->DomoticzAddressMapKey()] = control;
 
         m_Hardware->sDecodeRXMessage(m_Hardware, (const unsigned char*)&buf);
-        int r = m_sql.execute("UPDATE DeviceStatus SET Name = ? "
+        int r = m_sql.execute("UPDATE DeviceStatus SET Name = "
+                "CASE WHEN Name = 'Unknown' THEN ? ELSE Name END "
                 "WHERE HardwareID = ? AND DeviceID = ? AND "
                 "Type = ? AND SubType = ?",
                 SQLParamList() << control->Address().DeviceControlID <<
