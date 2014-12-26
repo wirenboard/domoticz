@@ -128,7 +128,21 @@ namespace {
         {
             int id = (buf->TEMP.id1 << 8) + buf->TEMP.id2;
             std::stringstream s;
-            s << id << "/" << (int)buf->LIGHTING5.packettype << "/" << (int)buf->LIGHTING5.subtype;
+            s << id << "/" << (int)buf->TEMP.packettype << "/" << (int)buf->TEMP.subtype;
+            return s.str();
+        }
+    };
+
+    template<typename T>
+    class HumidityControlType: public MQTTControlType<T>
+    {
+    public:
+        HumidityControlType(const std::string& type): MQTTControlType<T>(type) {}
+        std::string DomoticzAddressMapKey(RBUF* buf)
+        {
+            int id = (buf->HUM.id1 << 8) + buf->HUM.id2;
+            std::stringstream s;
+            s << id << "/" << (int)buf->HUM.packettype << "/" << (int)buf->HUM.subtype;
             return s.str();
         }
     };
@@ -476,6 +490,36 @@ namespace {
         return boost::shared_ptr<MQTTControl>(new MQTTTempBaroControl());
     }
 
+    class MQTTHumidityControl: public MQTTControl,
+                                  public DomoticzType<pTypeHUM, sTypeHUM1>
+    {
+    public:
+        bool MQTTToDomoticz(const std::string& value, RBUF* buf);
+    };
+
+    bool MQTTHumidityControl::MQTTToDomoticz(const std::string& value, RBUF* buf)
+    {
+        std::stringstream s(DeviceID());
+        int id;
+        s >> id;
+
+        std::stringstream s1(value);
+        float v;
+        s1 >> v;
+
+        buf->HUM.packetlength = sizeof(buf->TEMP) - 1;
+        buf->HUM.packettype = pTypeHUM;
+        buf->HUM.subtype = SubType();
+        buf->HUM.battery_level = 9;
+        buf->HUM.rssi = 12;
+        buf->HUM.id1 = id >> 8;
+        buf->HUM.id2 = id & 255;
+        buf->HUM.humidity = (BYTE)round(v);
+        buf->HUM.humidity_status = Get_Humidity_Level(buf->HUM.humidity);        
+
+        return true;
+    }
+
     class MQTTLuxControl: public MQTTHexIDControl,
                           public DomoticzType<pTypeLux, sTypeLux>
     {
@@ -759,6 +803,7 @@ namespace {
         new TemperatureControlType<MQTTTemperatureControl>("temperature"),
         new PressureControlType<MQTTPressureControl>("pressure"),
         new LuxControlType<MQTTLuxControl>("lux"),
+        new HumidityControlType<MQTTHumidityControl>("rel_humidity"),
         new Lighting5ControlType<MQTTSwitchControl>("switch"),
         new Lighting5ControlType<MQTTRGBControl>("rgb"),
         new Lighting5ControlType<MQTTDimmerControl>("dimmer"),
