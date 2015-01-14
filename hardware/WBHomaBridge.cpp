@@ -804,6 +804,7 @@ namespace {
         new PressureControlType<MQTTPressureControl>("pressure"),
         new LuxControlType<MQTTLuxControl>("lux"),
         new HumidityControlType<MQTTHumidityControl>("rel_humidity"),
+	new HumidityControlType<MQTTHumidityControl>("humidity"),
         new Lighting5ControlType<MQTTSwitchControl>("switch"),
         new Lighting5ControlType<MQTTRGBControl>("rgb"),
         new Lighting5ControlType<MQTTDimmerControl>("dimmer"),
@@ -1089,6 +1090,16 @@ struct WBHomaBridgePrivate
     void SendValueToDomoticz(boost::shared_ptr<MQTTControl> control,
                              const std::string& payload)
     {
+	bool bDeviceExists=true;
+        std::stringstream szQuery;
+	std::vector<std::vector<std::string> > result;
+	szQuery << "SELECT Name FROM DeviceStatus WHERE (HardwareID==" << m_Hardware->m_HwdID << ") AND (DeviceID==" << control->DeviceID() << ") AND (Type==" << control->DevType()  << ") AND (Subtype==" <<  control->SubType() << ")";
+	result=m_sql.query(szQuery.str());
+	if (result.size()<1)
+	{
+	    bDeviceExists=false;
+	}
+
         RBUF buf;
         memset(&buf, 0, sizeof(buf));
         control = control->AcceptValue(payload, &buf);
@@ -1098,22 +1109,25 @@ struct WBHomaBridgePrivate
         m_DomoticzAddressMap[control->DomoticzAddressMapKey()] = control;
 
         m_Hardware->sDecodeRXMessage(m_Hardware, (const unsigned char*)&buf);
-        int r = m_sql.execute("UPDATE DeviceStatus SET Name = "
-                "CASE WHEN Name = 'Unknown' THEN ? ELSE Name END "
-                "WHERE HardwareID = ? AND DeviceID = ? AND "
-                "Type = ? AND SubType = ?",
-                SQLParamList() << control->Address().DeviceControlID <<
-                m_Hardware->m_HwdID << control->DeviceID() <<
-                control->DevType() << control->SubType());
+	if (!bDeviceExists) 
+	{
+    	    int r = m_sql.execute("UPDATE DeviceStatus SET Name = "
+        	    "CASE WHEN Name = 'Unknown' THEN ? ELSE Name END "
+        	    "WHERE HardwareID = ? AND DeviceID = ? AND "
+        	    "Type = ? AND SubType = ?",
+        	    SQLParamList() << control->Address().DeviceControlID <<
+        	    m_Hardware->m_HwdID << control->DeviceID() <<
+        	    control->DevType() << control->SubType());
 
-        if (r != 1) {
-            _log.Log(LOG_ERROR, "WBHomaBridge: bad name update result for %s: %d",
-                     control->Address().DeviceControlID.c_str(), r);
-            abort();
-        }
+    	    if (r != 1) {
+        	_log.Log(LOG_ERROR, "WBHomaBridge: bad name update result for %s: %d",
+            	         control->Address().DeviceControlID.c_str(), r);
+        	    abort();
+    	    }
+	}
 
         if (control->SwitchType() >= 0) {
-            r = m_sql.execute("UPDATE DeviceStatus SET SwitchType = ? "
+            int r = m_sql.execute("UPDATE DeviceStatus SET SwitchType = ? "
                     "WHERE HardwareID = ? AND DeviceID = ? AND "
                     "Type = ? AND SubType = ?",
                     SQLParamList() << control->SwitchType() <<
